@@ -45,19 +45,18 @@
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-react": "^5.28.1",
     "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4",
+    "autoprefixer": "^10.4.21",
     "uuid": "^11.1.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "autoprefixer": "^10.4.21",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
-    "tailwindcss": "^4",
     "tsx": "^4.7.1",
     "typescript": "^5"
   }
