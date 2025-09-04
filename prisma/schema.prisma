@@ -1,0 +1,420 @@
+// Prisma schema for Netbanx Webhook Dashboard
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  eventType   String
+  source      String   @default("netbanx")
+  processed   Boolean  @default(false)
+  error       String?
+  
+  // JSON payload
+  payload     Json
+  
+  // Metadata
+  ipAddress   String?
+  userAgent   String?
+  signature   String?
+  
+  // Company relation
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  
+  // Indexes for performance
+  @@index([timestamp])
+  @@index([eventType])
+  @@index([processed])
+  @@index([source])
+  @@index([companyId])
+  @@map("webhook_events")
+}
+
+model Transaction {
+  id                String   @id @default(cuid())
+  externalId        String   @unique // Netbanx transaction ID
+  merchantRefNum    String
+  amount            Float
+  currency          String   @default("USD")
+  status            String
+  transactionType   String
+  paymentMethod     String
+  description       String?
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  transactionTime   DateTime
+  
+  // Additional data
+  metadata          Json?
+  webhookEventId    String?
+  
+  // Company relation
+  companyId         String?
+  company           Company? @relation(fields: [companyId], references: [id])
+  
+  // Indexes for performance and analytics
+  @@index([status])
+  @@index([transactionType])
+  @@index([paymentMethod])
+  @@index([currency])
+  @@index([createdAt])
+  @@index([transactionTime])
+  @@index([merchantRefNum])
+  @@index([companyId])
+  @@map("transactions")
+}
+
+model SystemMetrics {
+  id                    String   @id @default(cuid())
+  timestamp             DateTime @default(now())
+  
+  // Webhook metrics
+  webhooksReceived      Int      @default(0)
+  webhooksProcessed     Int      @default(0)
+  webhooksFailed        Int      @default(0)
+  
+  // Transaction metrics
+  transactionsTotal     Int      @default(0)
+  transactionsCompleted Int      @default(0)
+  transactionsFailed    Int      @default(0)
+  transactionsPending   Int      @default(0)
+  
+  // System metrics
+  memoryUsage          Float?
+  cpuUsage            Float?
+  diskUsage           Float?
+  responseTime        Float?
+  
+  @@index([timestamp])
+  @@map("system_metrics")
+}
+
+model Alert {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  type        String   // ERROR, WARNING, INFO
+  title       String
+  message     String
+  resolved    Boolean  @default(false)
+  resolvedAt  DateTime?
+  
+  // Context
+  source      String?
+  metadata    Json?
+  
+  @@index([timestamp])
+  @@index([type])
+  @@index([resolved])
+  @@map("alerts")
+}
+
+model Company {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  phone           String?
+  address         String?
+  
+  // Settings
+  webhookEndpoint String?
+  apiKey          String?   @unique
+  isActive        Boolean   @default(true)
+  
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  users           User[]
+  transactions    Transaction[]
+  webhookEvents   WebhookEvent[]
+  apiTokens       ApiToken[]
+  notifications   NotificationSetting[]
+  accounts        Account[]
+  
+  @@map("companies")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  firstName       String
+  lastName        String
+  passwordHash    String
+  role            String   // SUPER_ADMIN, COMPANY_ADMIN, COMPANY_USER, READONLY
+  isActive        Boolean  @default(true)
+  
+  // Settings
+  timezone        String   @default("UTC")
+  emailVerified   Boolean  @default(false)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  
+  // Password reset
+  resetToken      String?
+  resetTokenAt    DateTime?
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id])
+  sessions        Session[]
+  auditLogs       AuditLog[]
+  
+  @@index([email])
+  @@index([role])
+  @@index([companyId])
+  @@map("users")
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  userId      String
+  expiresAt   DateTime
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model ApiToken {
+  id          String   @id @default(cuid())
+  name        String
+  token       String   @unique
+  companyId   String
+  
+  // Permissions
+  permissions Json     // Array of permissions like ["read:transactions", "write:webhooks"]
+  
+  // Status
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@index([token])
+  @@index([companyId])
+  @@index([isActive])
+  @@map("api_tokens")
+}
+
+model NotificationSetting {
+  id              String   @id @default(cuid())
+  companyId       String
+  
+  // Email settings
+  emailEnabled    Boolean  @default(true)
+  emailAddresses  String[] // Array of email addresses
+  
+  // Event types to notify
+  notifyOnSuccess Boolean  @default(false)
+  notifyOnFailure Boolean  @default(true)
+  notifyOnHighVolume Boolean @default(true)
+  notifyOnErrors  Boolean  @default(true)
+  
+  // Thresholds
+  highVolumeThreshold    Int @default(100) // webhooks per hour
+  errorRateThreshold     Int @default(5)   // percentage
+  
+  // Timing
+  dailySummary    Boolean  @default(true)
+  weeklySummary   Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@unique([companyId])
+  @@map("notification_settings")
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  to          String[]
+  subject     String
+  content     String
+  status      String   // SENT, FAILED, PENDING
+  error       String?
+  
+  // Context
+  companyId   String?
+  eventType   String?
+  metadata    Json?
+  
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  
+  @@index([companyId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // LOGIN, LOGOUT, CREATE, UPDATE, DELETE, API_CALL
+  resource    String?  // USER, COMPANY, WEBHOOK, etc.
+  resourceId  String?
+  
+  // Context
+  userId      String?
+  companyId   String?
+  ipAddress   String?
+  userAgent   String?
+  details     Json?
+  
+  timestamp   DateTime @default(now())
+  
+  user        User?    @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
+  @@index([companyId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Account {
+  id              String   @id @default(cuid())
+  externalId      String   @unique // Netbanx/Paysafe account ID
+  merchantId      String?  // Merchant identifier
+  
+  // Basic Info
+  accountName     String
+  businessName    String?
+  email           String
+  phone           String?
+  
+  // Onboarding Status
+  status          String   // PENDING, IN_REVIEW, APPROVED, REJECTED, SUSPENDED
+  subStatus       String?  // Additional status details
+  onboardingStage String?  // KYC, DOCUMENTS, VERIFICATION, SETUP, COMPLETE
+  
+  // Payment Method IDs - Critical for API integration
+  creditCardId    String?  // CC ID for credit card processing
+  directDebitId   String?  // DD ID for direct debit processing
+  
+  // Business Information
+  businessType    String?
+  industry        String?
+  website         String?
+  
+  // Risk and Compliance
+  riskLevel       String?  // LOW, MEDIUM, HIGH
+  complianceStatus String? // COMPLIANT, NON_COMPLIANT, PENDING
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  approvedAt      DateTime?
+  activatedAt     DateTime?
+  
+  // Additional data
+  metadata        Json?
+  webhookEventId  String?
+  
+  // Company relation
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id])
+  
+  // Relations
+  statusHistory   AccountStatusHistory[]
+  paymentMethods  PaymentMethod[]
+  
+  @@index([externalId])
+  @@index([status])
+  @@index([onboardingStage])
+  @@index([creditCardId])
+  @@index([directDebitId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@map("accounts")
+}
+
+model AccountStatusHistory {
+  id          String   @id @default(cuid())
+  accountId   String
+  
+  // Status tracking
+  fromStatus  String?
+  toStatus    String
+  subStatus   String?
+  stage       String?
+  
+  // Change details
+  reason      String?
+  description String?
+  changedBy   String?  // User or system
+  
+  // Additional context
+  metadata    Json?
+  
+  timestamp   DateTime @default(now())
+  
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([accountId])
+  @@index([toStatus])
+  @@index([timestamp])
+  @@map("account_status_history")
+}
+
+model PaymentMethod {
+  id          String   @id @default(cuid())
+  accountId   String
+  
+  // Payment Method Details
+  type        String   // CREDIT_CARD, DIRECT_DEBIT, ACH, WIRE_TRANSFER
+  externalId  String   // The CC ID or DD ID from Paysafe
+  name        String?  // Display name
+  
+  // Status
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE, PENDING, REJECTED
+  isDefault   Boolean  @default(false)
+  
+  // Configuration
+  capabilities String[] // PAYMENT, REFUND, RECURRING
+  limits      Json?    // Amount limits, frequency limits
+  
+  // Additional data
+  metadata    Json?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  activatedAt DateTime?
+  
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  @@index([accountId])
+  @@index([type])
+  @@index([externalId])
+  @@index([status])
+  @@map("payment_methods")
+}

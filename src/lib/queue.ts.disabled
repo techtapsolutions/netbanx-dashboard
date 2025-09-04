@@ -1,0 +1,311 @@
+import Bull from 'bull';
+import { redis } from './database';
+import { WebhookProcessor } from './webhook-processor';
+import winston from 'winston';
+
+// Configure logger
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' }),
+    new winston.transports.Console({
+      format: winston.format.simple()
+    })
+  ],
+});
+
+// Create webhook processing queue with Redis
+export const webhookQueue = new Bull('webhook processing', {
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+  },
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000,
+    },
+    removeOnComplete: 100, // Keep last 100 completed jobs
+    removeOnFail: 50, // Keep last 50 failed jobs
+  },
+});
+
+// Metrics collection queue
+export const metricsQueue = new Bull('metrics collection', {
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+  },
+  defaultJobOptions: {
+    repeat: { every: 60000 }, // Run every minute
+    removeOnComplete: 1,
+    removeOnFail: 1,
+  },
+});
+
+// Cleanup queue for old data
+export const cleanupQueue = new Bull('data cleanup', {
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+  },
+  defaultJobOptions: {
+    repeat: { cron: '0 2 * * *' }, // Run daily at 2 AM
+    removeOnComplete: 1,
+    removeOnFail: 1,
+  },
+});
+
+// Process webhook events
+webhookQueue.process('webhook-event', 10, async (job) => {
+  const { webhookData, metadata } = job.data;
+  
+  logger.info('Processing webhook event', {
+    eventType: webhookData.eventType,
+    jobId: job.id,
+    attempt: job.attemptsMade + 1,
+  });
+  
+  try {
+    const processor = new WebhookProcessor();
+    const result = await processor.processWebhook(webhookData, metadata);
+    
+    logger.info('Webhook processed successfully', {
+      eventType: webhookData.eventType,
+      jobId: job.id,
+      transactionId: result.transactionId,
+    });
+    
+    return result;
+  } catch (error) {
+    logger.error('Webhook processing failed', {
+      eventType: webhookData.eventType,
+      jobId: job.id,
+      error: error.message,
+      attempt: job.attemptsMade + 1,
+    });
+    
+    throw error;
+  }
+});
+
+// Process metrics collection
+metricsQueue.process('collect-metrics', async (job) => {
+  logger.debug('Collecting system metrics', { jobId: job.id });
+  
+  try {
+    const { DatabaseService } = await import('./database');
+    await DatabaseService.recordSystemMetrics();
+    
+    logger.debug('System metrics collected successfully', { jobId: job.id });
+  } catch (error) {
+    logger.error('Metrics collection failed', {
+      jobId: job.id,
+      error: error.message,
+    });
+    
+    throw error;
+  }
+});
+
+// Process data cleanup
+cleanupQueue.process('cleanup-old-data', async (job) => {
+  const daysToKeep = job.data.daysToKeep || 90;
+  
+  logger.info('Starting data cleanup', {
+    jobId: job.id,
+    daysToKeep,
+  });
+  
+  try {
+    const { DatabaseService } = await import('./database');
+    const result = await DatabaseService.cleanupOldData(daysToKeep);
+    
+    logger.info('Data cleanup completed', {
+      jobId: job.id,
+      ...result,
+    });
+    
+    return result;
+  } catch (error) {
+    logger.error('Data cleanup failed', {
+      jobId: job.id,
+      error: error.message,
+    });
+    
+    throw error;
+  }
+});
+
+// Queue event handlers for monitoring
+webhookQueue.on('completed', (job, result) => {
+  logger.debug('Webhook job completed', {
+    jobId: job.id,
+    duration: Date.now() - job.timestamp,
+  });
+});
+
+webhookQueue.on('failed', (job, err) => {
+  logger.error('Webhook job failed', {
+    jobId: job.id,
+    eventType: job.data.webhookData?.eventType,
+    error: err.message,
+    attempts: job.attemptsMade,
+  });
+});
+
+webhookQueue.on('stalled', (job) => {
+  logger.warn('Webhook job stalled', {
+    jobId: job.id,
+    eventType: job.data.webhookData?.eventType,
+  });
+});
+
+// Queue management utilities
+export class QueueManager {
+  // Add webhook to processing queue
+  static async addWebhookJob(webhookData: any, metadata: any = {}) {
+    try {
+      const job = await webhookQueue.add('webhook-event', {
+        webhookData,
+        metadata: {
+          ...metadata,
+          receivedAt: new Date().toISOString(),
+        },
+      }, {
+        priority: webhookData.eventType?.includes('PAYMENT') ? 1 : 5, // Higher priority for payments
+      });
+      
+      logger.debug('Webhook job added to queue', {
+        jobId: job.id,
+        eventType: webhookData.eventType,
+      });
+      
+      return job;
+    } catch (error) {
+      logger.error('Failed to add webhook job to queue', {
+        error: error.message,
+        eventType: webhookData.eventType,
+      });
+      throw error;
+    }
+  }
+
+  // Get queue statistics
+  static async getQueueStats() {
+    try {
+      const [waiting, active, completed, failed, delayed] = await Promise.all([
+        webhookQueue.getWaiting(),
+        webhookQueue.getActive(),
+        webhookQueue.getCompleted(),
+        webhookQueue.getFailed(),
+        webhookQueue.getDelayed(),
+      ]);
+
+      return {
+        webhook: {
+          waiting: waiting.length,
+          active: active.length,
+          completed: completed.length,
+          failed: failed.length,
+          delayed: delayed.length,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      logger.error('Failed to get queue stats', { error: error.message });
+      throw error;
+    }
+  }
+
+  // Clean failed jobs
+  static async cleanFailedJobs() {
+    try {
+      const jobs = await webhookQueue.getFailed();
+      const oldJobs = jobs.filter(job => 
+        Date.now() - job.timestamp > 24 * 60 * 60 * 1000 // Older than 24 hours
+      );
+      
+      await Promise.all(oldJobs.map(job => job.remove()));
+      
+      logger.info('Cleaned failed jobs', { count: oldJobs.length });
+      
+      return oldJobs.length;
+    } catch (error) {
+      logger.error('Failed to clean failed jobs', { error: error.message });
+      throw error;
+    }
+  }
+
+  // Pause/Resume queue processing
+  static async pauseQueue() {
+    await webhookQueue.pause();
+    logger.info('Webhook queue paused');
+  }
+
+  static async resumeQueue() {
+    await webhookQueue.resume();
+    logger.info('Webhook queue resumed');
+  }
+
+  // Get job by ID
+  static async getJob(jobId: string) {
+    return await webhookQueue.getJob(jobId);
+  }
+
+  // Retry failed job
+  static async retryJob(jobId: string) {
+    const job = await webhookQueue.getJob(jobId);
+    if (job) {
+      await job.retry();
+      logger.info('Job retried', { jobId });
+    }
+  }
+}
+
+// Initialize recurring jobs
+export async function initializeQueues() {
+  try {
+    // Add metrics collection job
+    await metricsQueue.add('collect-metrics', {}, {
+      repeat: { every: 60000 }, // Every minute
+    });
+
+    // Add cleanup job
+    await cleanupQueue.add('cleanup-old-data', {
+      daysToKeep: parseInt(process.env.DATA_RETENTION_DAYS || '90'),
+    }, {
+      repeat: { cron: '0 2 * * *' }, // Daily at 2 AM
+    });
+
+    logger.info('Queues initialized successfully');
+  } catch (error) {
+    logger.error('Failed to initialize queues', { error: error.message });
+    throw error;
+  }
+}
+
+// Graceful shutdown
+export async function shutdownQueues() {
+  try {
+    await Promise.all([
+      webhookQueue.close(),
+      metricsQueue.close(),
+      cleanupQueue.close(),
+    ]);
+    
+    logger.info('Queues shut down gracefully');
+  } catch (error) {
+    logger.error('Error during queue shutdown', { error: error.message });
+  }
+}
