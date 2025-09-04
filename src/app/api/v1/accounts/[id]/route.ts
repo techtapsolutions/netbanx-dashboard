@@ -58,7 +58,7 @@ const prisma = new PrismaClient();
  *       404:
  *         description: Account not found
  */
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const authResult = await authenticateApiRequest(request);
     if (!authResult.success) {
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 
     const { user, company } = authResult;
-    const { id } = params;
+    const { id } = await params;
 
     // Build query with company restriction if needed
     const whereClause: any = { externalId: id };
