@@ -1,81 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DatabaseService } from '@/lib/database';
+import { db } from '@/lib/database';
 import { AuthService } from '@/lib/auth';
 
 /**
  * @swagger
- * /api/v1/transactions:
+ * /api/v1/transactions/{id}:
  *   get:
- *     summary: Get transactions
- *     description: Retrieve paginated list of transactions with optional filters
+ *     summary: Get transaction by ID
  *     security:
  *       - BearerAuth: []
  *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *         description: Number of transactions per page
- *       - in: query
- *         name: status
+ *       - in: path
+ *         name: id
+ *         required: true
  *         schema:
  *           type: string
- *           enum: [COMPLETED, PENDING, FAILED, CANCELLED]
- *         description: Filter by transaction status
- *       - in: query
- *         name: currency
- *         schema:
- *           type: string
- *         description: Filter by currency code
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Filter transactions from this date
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Filter transactions until this date
+ *         description: Transaction ID
  *     responses:
  *       200:
- *         description: Successful response
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     transactions:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Transaction'
- *                     pagination:
- *                       $ref: '#/components/schemas/Pagination'
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Forbidden
+ *         description: Transaction details
+ *       404:
+ *         description: Transaction not found
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // Authenticate API request
     const authResult = await authenticateApiRequest(request);
     if (!authResult.success) {
       return NextResponse.json(
@@ -85,51 +33,37 @@ export async function GET(request: NextRequest) {
     }
 
     const { user, company } = authResult;
+    const { id } = params;
 
-    // Parse query parameters
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
-    const status = searchParams.get('status');
-    const currency = searchParams.get('currency');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const transaction = await db.transaction.findFirst({
+      where: {
+        id,
+        companyId: company?.id,
+      },
+    });
 
-    // Build filters
-    const filters: any = {};
-    if (status) filters.status = status;
-    if (currency) filters.currency = currency;
-    if (startDate) filters.startDate = new Date(startDate);
-    if (endDate) filters.endDate = new Date(endDate);
+    if (!transaction) {
+      return NextResponse.json(
+        { error: 'Transaction not found' },
+        { status: 404 }
+      );
+    }
 
-    // Get transactions with company restriction
-    const result = await DatabaseService.getTransactionsPaginated(
-      page,
-      limit,
-      {
-        ...filters,
-        companyId: company?.id, // Restrict to company's transactions
-      }
-    );
-
-    // Log API usage
-    await logApiUsage(user.id, company?.id, 'GET /api/v1/transactions');
+    await logApiUsage(user.id, company?.id, `GET /api/v1/transactions/${id}`);
 
     return NextResponse.json({
       success: true,
-      data: result,
+      data: transaction,
     });
 
   } catch (error) {
     console.error('API error:', error);
-    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
-
 
 // API Authentication helper
 async function authenticateApiRequest(request: NextRequest) {
