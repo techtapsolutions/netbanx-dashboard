@@ -1,14 +1,14 @@
 {
-  "buildCommand": "npx prisma generate && npm run build",
-  "installCommand": "npm ci",
   "framework": "nextjs",
+  "buildCommand": "node scripts/build.js",
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 60
     }
   },
   "env": {
-    "PRISMA_GENERATE_SKIP_AUTOINSTALL": "true"
+    "PRISMA_GENERATE_SKIP_AUTOINSTALL": "true",
+    "SKIP_ENV_VALIDATION": "true"
   },
   "crons": [
     {
