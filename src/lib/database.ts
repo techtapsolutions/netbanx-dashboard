@@ -11,7 +11,10 @@ export const db = global.__db || new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   datasources: {
     db: {
-      url: process.env.DATABASE_URL,
+      // For Supabase, use direct connection instead of pooler to avoid prepared statement issues
+      url: process.env.DATABASE_URL?.includes('pooler.supabase.com') 
+        ? process.env.DIRECT_URL || process.env.DATABASE_URL?.replace('pooler.supabase.com:6543', 'db.yufxjpyesqstlmvuxtiy.supabase.co:5432')
+        : process.env.DATABASE_URL,
     },
   },
 });
