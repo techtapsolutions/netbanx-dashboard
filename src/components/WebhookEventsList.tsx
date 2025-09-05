@@ -38,19 +38,19 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <div className="text-sm font-medium text-gray-500">Total Webhooks</div>
+            <div className="text-sm font-medium text-gray-800">Total Webhooks</div>
             <div className="text-2xl font-bold text-gray-900">{stats.totalReceived}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <div className="text-sm font-medium text-gray-500">Processed</div>
+            <div className="text-sm font-medium text-gray-800">Processed</div>
             <div className="text-2xl font-bold text-green-600">{stats.successfullyProcessed}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <div className="text-sm font-medium text-gray-500">Failed</div>
+            <div className="text-sm font-medium text-gray-800">Failed</div>
             <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <div className="text-sm font-medium text-gray-500">Last Received</div>
+            <div className="text-sm font-medium text-gray-800">Last Received</div>
             <div className="text-lg font-medium text-gray-900">
               {stats.lastReceived ? formatDateTime(stats.lastReceived) : 'Never'}
             </div>
@@ -98,8 +98,8 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
 
         {filteredEvents.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-gray-500">No webhook events received yet.</p>
-            <p className="text-sm text-gray-400 mt-2">
+            <p className="text-gray-800">No webhook events received yet.</p>
+            <p className="text-sm text-gray-700 mt-2">
               Use the "Test Webhook" button to generate sample events.
             </p>
           </div>
@@ -130,11 +130,11 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
                     
                     <div>
                       <div className="font-medium text-gray-900">{event.eventType}</div>
-                      <div className="text-sm text-gray-500">{formatDateTime(event.timestamp)}</div>
+                      <div className="text-sm text-gray-700">{formatDateTime(event.timestamp)}</div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                  <div className="flex items-center space-x-4 text-sm text-gray-700">
                     <span className="font-mono">{event.id}</span>
                     {event.payload.eventData.merchantRefNum && (
                       <span>{event.payload.eventData.merchantRefNum}</span>
@@ -153,7 +153,7 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
                   <div className="mt-4 ml-9">
                     <div className="bg-gray-50 p-4 rounded-lg">
                       <h4 className="font-medium text-gray-900 mb-2">Event Data</h4>
-                      <pre className="text-sm text-gray-600 overflow-x-auto">
+                      <pre className="text-sm text-gray-800 overflow-x-auto">
                         {JSON.stringify(event.payload, null, 2)}
                       </pre>
                       {event.error && (

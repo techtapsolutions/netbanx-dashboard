@@ -67,14 +67,14 @@ export function StatsCards({ summary }: StatsCardsProps) {
                 </div>
               </div>
               <div className="ml-4 flex-1">
-                <div className="text-sm font-medium text-gray-500">
+                <div className="text-sm font-medium text-gray-800">
                   {card.title}
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">
                   {card.value}
                 </div>
                 {card.subtitle && (
-                  <div className="text-sm text-gray-600">
+                  <div className="text-sm text-gray-800">
                     {card.subtitle}
                   </div>
                 )}

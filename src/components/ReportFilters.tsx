@@ -71,7 +71,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                 onChange(newFilter);
               }}
               disabled={disabled}
-              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {range.label}
             </button>
@@ -82,7 +82,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-800 mb-2">
                   Start Date
                 </label>
                 <input
@@ -97,7 +97,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-800 mb-2">
                   End Date
                 </label>
                 <input
@@ -115,7 +115,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-800 mb-2">
                   Status
                 </label>
                 <select
@@ -137,7 +137,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-800 mb-2">
                   Currency
                 </label>
                 <select
@@ -155,7 +155,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-gray-800">
                   Amount Range
                 </label>
                 <input
@@ -194,7 +194,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
               <button
                 onClick={resetFilter}
                 disabled={disabled}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Reset
               </button>

@@ -72,9 +72,9 @@ export function Charts({ transactions }: ChartsProps) {
     if (active && payload && payload.length) {
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-medium">{label}</p>
+          <p className="font-medium text-gray-900">{label}</p>
           {payload.map((entry: any, index: number) => (
-            <p key={index} className="text-sm" style={{ color: entry.color }}>
+            <p key={index} className="text-sm font-medium" style={{ color: entry.color }}>
               {entry.dataKey === 'amount' ? formatCurrency(entry.value) : entry.value}
             </p>
           ))}
