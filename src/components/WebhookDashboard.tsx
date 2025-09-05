@@ -25,17 +25,39 @@ export function WebhookDashboard() {
       setLoading(true);
       setError('');
 
+      console.log('Fetching webhook data...');
+
       const [transactionsResponse, webhooksResponse] = await Promise.all([
         fetch('/api/data?type=transactions'),
         fetch('/api/data?type=webhooks&limit=50')
       ]);
 
-      if (!transactionsResponse.ok || !webhooksResponse.ok) {
-        throw new Error('Failed to fetch data');
+      console.log('Response status:', {
+        transactions: transactionsResponse.status,
+        webhooks: webhooksResponse.status
+      });
+
+      if (!transactionsResponse.ok) {
+        const errorText = await transactionsResponse.text();
+        console.error('Transactions API error:', errorText);
+        throw new Error(`Failed to fetch transactions: ${transactionsResponse.status}`);
+      }
+
+      if (!webhooksResponse.ok) {
+        const errorText = await webhooksResponse.text();
+        console.error('Webhooks API error:', errorText);
+        throw new Error(`Failed to fetch webhooks: ${webhooksResponse.status}`);
       }
 
       const transactionsData = await transactionsResponse.json();
       const webhooksData = await webhooksResponse.json();
+
+      console.log('Fetched data:', {
+        transactionsCount: transactionsData.transactions?.length || 0,
+        webhooksCount: webhooksData.events?.length || 0,
+        transactionsSuccess: transactionsData.success,
+        webhooksSuccess: webhooksData.success
+      });
 
       setTransactions(transactionsData.transactions || []);
       setSummary(transactionsData.summary || {
@@ -55,7 +77,7 @@ export function WebhookDashboard() {
       });
 
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching webhook data:', error);
       setError(error instanceof Error ? error.message : 'Failed to fetch data');
     } finally {
       setLoading(false);

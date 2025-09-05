@@ -93,7 +93,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                     startDate: new Date(e.target.value).toISOString()
                   })}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
               <div>
@@ -108,7 +108,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                     endDate: new Date(e.target.value).toISOString()
                   })}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -126,7 +126,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                     setLocalFilter({ ...localFilter, status: values });
                   }}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                   size={4}
                 >
                   {statuses.map((status) => (
@@ -144,7 +144,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                   value={localFilter.currency || ''}
                   onChange={(e) => setLocalFilter({ ...localFilter, currency: e.target.value || undefined })}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="">All Currencies</option>
                   {currencies.map((currency) => (
@@ -167,7 +167,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                     minAmount: e.target.value ? parseFloat(e.target.value) : undefined
                   })}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <input
                   type="number"
@@ -178,7 +178,7 @@ export function ReportFilters({ filter, onChange, disabled }: ReportFiltersProps
                     maxAmount: e.target.value ? parseFloat(e.target.value) : undefined
                   })}
                   disabled={disabled}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>

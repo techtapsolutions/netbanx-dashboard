@@ -69,7 +69,7 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
                 placeholder="Search events..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-10 w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -77,7 +77,7 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
             <select
               value={filterEventType}
               onChange={(e) => setFilterEventType(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="">All Event Types</option>
               {uniqueEventTypes.map(type => (

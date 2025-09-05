@@ -51,8 +51,13 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error('Error fetching data:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return NextResponse.json(
-      { error: 'Failed to fetch data' },
+      { 
+        error: 'Failed to fetch data', 
+        details: errorMessage,
+        success: false 
+      },
       { status: 500 }
     );
   }
