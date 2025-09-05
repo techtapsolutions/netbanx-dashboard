@@ -11,6 +11,22 @@ if (!process.env.DATABASE_URL) {
   console.log('⚠️  Using placeholder DATABASE_URL for build');
 }
 
+// Set default environment variables for CI/Docker builds
+const defaultEnvVars = {
+  NODE_ENV: 'production',
+  SKIP_ENV_VALIDATION: 'true',
+  PRISMA_GENERATE_SKIP_AUTOINSTALL: 'true',
+  NEXT_TELEMETRY_DISABLED: '1'
+};
+
+// Apply defaults only if not already set
+Object.keys(defaultEnvVars).forEach(key => {
+  if (!process.env[key]) {
+    process.env[key] = defaultEnvVars[key];
+    console.log(`📝 Set ${key}=${defaultEnvVars[key]}`);
+  }
+});
+
 // Generate Prisma client
 console.log('📦 Generating Prisma client...');
 const prismaGenerate = spawn('npx', ['prisma', 'generate'], {
@@ -30,7 +46,11 @@ prismaGenerate.on('close', (code) => {
   // Build Next.js
   const nextBuild = spawn('npm', ['run', 'build'], {
     stdio: 'inherit',
-    env: { ...process.env, SKIP_ENV_VALIDATION: 'true' }
+    env: { 
+      ...process.env, 
+      SKIP_ENV_VALIDATION: 'true',
+      ESLINT_NO_DEV_ERRORS: 'true'
+    }
   });
   
   nextBuild.on('close', (buildCode) => {

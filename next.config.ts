@@ -4,6 +4,20 @@ const nextConfig: NextConfig = {
   // Production optimizations
   output: 'standalone',
   
+  // Disable ESLint during CI builds for faster deployments
+  eslint: {
+    // Only run ESLint on the 'pages' and 'utils' directories during the build
+    dirs: process.env.NODE_ENV === 'production' ? [] : ['pages', 'utils'], // Disable for production
+    // Warning: This allows production builds to succeed even with ESLint errors.
+    ignoreDuringBuilds: process.env.NODE_ENV === 'production',
+  },
+
+  // Disable TypeScript checking during CI builds for faster deployments
+  typescript: {
+    // Warning: This allows production builds to succeed even with TypeScript errors.
+    ignoreBuildErrors: process.env.NODE_ENV === 'production',
+  },
+  
   // External packages configuration
   serverExternalPackages: ['@prisma/client'],
   

@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # Build and test stage for CI
+  netbanx-dashboard-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    environment:
+      - NODE_ENV=production
+      - SKIP_ENV_VALIDATION=true
+      - PRISMA_GENERATE_SKIP_AUTOINSTALL=true
+      - DATABASE_URL=postgresql://ci:ci@postgres:5432/ci_test
+    depends_on:
+      - postgres-ci
+    volumes:
+      - build-artifacts:/app/.next
+
+  # Main application for CI testing
+  netbanx-dashboard-ci:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://ci:ci@postgres-ci:5432/ci_test
+      - REDIS_URL=redis://redis-ci:6379
+      - WEBHOOK_SECRET=ci-test-webhook-secret
+      - JWT_SECRET=ci-test-jwt-secret
+      - RATE_LIMIT_WINDOW_MS=900000
+      - RATE_LIMIT_MAX_REQUESTS=1000
+      - DATA_RETENTION_DAYS=90
+    depends_on:
+      postgres-ci:
+        condition: service_healthy
+      redis-ci:
+        condition: service_healthy
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Lightweight PostgreSQL for CI
+  postgres-ci:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=ci
+      - POSTGRES_PASSWORD=ci
+      - POSTGRES_DB=ci_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Lightweight Redis for CI
+  redis-ci:
+    image: redis:7-alpine
+    tmpfs:
+      - /data
+    ports:
+      - "6380:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  build-artifacts:
+
+networks:
+  default:
+    name: netbanx-ci-network
+    driver: bridge
