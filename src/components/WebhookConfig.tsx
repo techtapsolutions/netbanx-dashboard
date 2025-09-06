@@ -46,19 +46,19 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
 
   // Load webhook secrets from API
   const loadWebhookSecrets = async () => {
+    // Initialize with default endpoint options
+    const secretsData: WebhookSecretData[] = [
+      { endpoint: 'netbanx', name: 'Credit Card Payments', description: 'Primary Netbanx webhook endpoint', hasSecret: false },
+      { endpoint: 'account-status', name: 'Account Status Updates', description: 'Account onboarding and status changes', hasSecret: false },
+      { endpoint: 'direct-debit', name: 'Direct Debit Payments', description: 'Direct debit transactions and mandates', hasSecret: false },
+      { endpoint: 'alternate-payments', name: 'Alternate Payments', description: 'Digital wallets and alternative payment methods', hasSecret: false },
+    ];
+
     try {
       const response = await fetch('/api/webhook-secrets');
       const data = await response.json();
       
-      if (data.success) {
-        // Transform API data to match our interface
-        const secretsData: WebhookSecretData[] = [
-          { endpoint: 'netbanx', name: 'Credit Card Payments', description: 'Primary Netbanx webhook endpoint', hasSecret: false },
-          { endpoint: 'account-status', name: 'Account Status Updates', description: 'Account onboarding and status changes', hasSecret: false },
-          { endpoint: 'direct-debit', name: 'Direct Debit Payments', description: 'Direct debit transactions and mandates', hasSecret: false },
-          { endpoint: 'alternate-payments', name: 'Alternate Payments', description: 'Digital wallets and alternative payment methods', hasSecret: false },
-        ];
-
+      if (data.success && data.secrets) {
         // Mark endpoints that have secrets configured
         data.secrets.forEach((secret: any) => {
           const endpointData = secretsData.find(s => s.endpoint === secret.endpoint);
@@ -68,12 +68,14 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
             endpointData.usageCount = secret.usageCount;
           }
         });
-
-        setWebhookSecrets(secretsData);
       }
     } catch (error) {
       console.error('Error loading webhook secrets:', error);
+      // Continue with default endpoints even if API fails
     }
+
+    // Always set the webhook secrets, even if API fails
+    setWebhookSecrets(secretsData);
   };
 
   // Save HMAC secret key
