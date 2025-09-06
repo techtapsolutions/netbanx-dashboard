@@ -17,9 +17,11 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
   const [filterEventType, setFilterEventType] = useState('');
 
   const filteredEvents = events.filter(event => {
+    // Safely access merchantRefNum with proper null checks
+    const merchantRefNum = event.payload?.eventData?.merchantRefNum;
     const matchesSearch = event.eventType.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          event.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         event.payload.eventData.merchantRefNum?.toLowerCase().includes(searchTerm.toLowerCase());
+                         (merchantRefNum && merchantRefNum.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesFilter = !filterEventType || event.eventType.includes(filterEventType);
     
@@ -136,7 +138,7 @@ export function WebhookEventsList({ events, stats, onRefresh }: WebhookEventsLis
                   
                   <div className="flex items-center space-x-4 text-sm text-gray-700">
                     <span className="font-mono">{event.id}</span>
-                    {event.payload.eventData.merchantRefNum && (
+                    {event.payload?.eventData?.merchantRefNum && (
                       <span>{event.payload.eventData.merchantRefNum}</span>
                     )}
                     <span className={`px-2 py-1 rounded-full text-xs ${

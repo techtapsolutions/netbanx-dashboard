@@ -6,22 +6,94 @@ declare global {
   var __redis: Redis | undefined;
 }
 
-// Database singleton with connection pooling
-export const db = global.__db || new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  datasources: {
-    db: {
-      // For Supabase, use direct connection instead of pooler to avoid prepared statement issues
-      url: process.env.DATABASE_URL?.includes('pooler.supabase.com') 
-        ? process.env.DIRECT_URL || process.env.DATABASE_URL?.replace('pooler.supabase.com:6543', 'db.yufxjpyesqstlmvuxtiy.supabase.co:5432')
-        : process.env.DATABASE_URL,
-    },
-  },
-});
-
-if (process.env.NODE_ENV !== 'production') {
-  global.__db = db;
+// Serverless-optimized Prisma client configuration
+function createPrismaClient() {
+  return new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    // Optimize error handling for serverless
+    errorFormat: isServerlessEnvironment() ? 'minimal' : 'pretty',
+  });
 }
+
+// Serverless-compatible database utilities
+function isServerlessEnvironment(): boolean {
+  return !!(
+    process.env.VERCEL || 
+    process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.NETLIFY ||
+    process.env.FUNCTIONS_WORKER_RUNTIME
+  );
+}
+
+// For serverless: create new client instance for each operation
+// For development: use singleton pattern with proper cleanup
+let globalPrismaClient: PrismaClient | undefined;
+
+function getDatabaseClient(): PrismaClient {
+  // In serverless environments, always create a completely new client to avoid prepared statement conflicts
+  if (isServerlessEnvironment()) {
+    console.log('Creating new Prisma client for serverless environment');
+    return createPrismaClient();
+  }
+
+  // In development, reuse the same client
+  if (!globalPrismaClient) {
+    globalPrismaClient = createPrismaClient();
+    
+    // Ensure proper cleanup on process termination
+    process.on('beforeExit', async () => {
+      if (globalPrismaClient) {
+        await globalPrismaClient.$disconnect();
+      }
+    });
+  }
+
+  return globalPrismaClient;
+}
+
+// Database wrapper that handles connection lifecycle in serverless environments
+export async function withDatabase<T>(
+  operation: (client: PrismaClient) => Promise<T>
+): Promise<T> {
+  const client = getDatabaseClient();
+  
+  try {
+    // Ensure connection is established
+    await client.$connect();
+    
+    const result = await operation(client);
+    
+    // In serverless, always disconnect after each operation to prevent connection leaks
+    if (isServerlessEnvironment()) {
+      await client.$disconnect();
+    }
+    
+    return result;
+  } catch (error: any) {
+    console.error('Database operation failed:', error.message);
+    
+    // Always disconnect on error to prevent connection leaks
+    if (isServerlessEnvironment()) {
+      await client.$disconnect().catch((disconnectError) => {
+        console.error('Failed to disconnect Prisma client:', disconnectError);
+      });
+    }
+    
+    // Re-throw with more context
+    if (error.code === 'P2021') {
+      throw new Error(`Database table not found: ${error.message}`);
+    } else if (error.code === 'P1001') {
+      throw new Error(`Cannot connect to database: ${error.message}`);
+    } else if (error.code === 'P1002') {
+      throw new Error(`Database connection timeout: ${error.message}`);
+    }
+    
+    throw error;
+  }
+}
+
+// Export direct client for existing code compatibility (but prefer withDatabase wrapper)
+export const db = getDatabaseClient();
 
 // Redis singleton for caching and queues
 export const redis = global.__redis || new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {

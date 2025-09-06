@@ -1,9 +1,9 @@
 export interface WebhookPayload {
   id: string;
   eventType: string;
-  eventData: {
-    id: string;
-    merchantRefNum: string;
+  eventData?: {
+    id?: string;
+    merchantRefNum?: string;
     amount?: number;
     currencyCode?: string;
     status?: string;

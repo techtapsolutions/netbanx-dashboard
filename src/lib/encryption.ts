@@ -1,11 +1,10 @@
 import crypto from 'crypto';
 
 // Encryption configuration
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = 'aes-256-cbc';
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 16;  // 128 bits
 const SALT_LENGTH = 64; // 512 bits
-const TAG_LENGTH = 16;  // 128 bits
 const ITERATIONS = 100000; // PBKDF2 iterations
 
 // Get encryption key from environment variable
@@ -25,19 +24,18 @@ export function encryptSecret(plaintext: string): string {
   try {
     const key = getEncryptionKey();
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipherGCM(ALGORITHM, key, iv);
+    
+    const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
     
     let encrypted = cipher.update(plaintext, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     
-    const authTag = cipher.getAuthTag();
-    
-    // Combine IV + encrypted data + auth tag
-    const result = iv.toString('hex') + ':' + encrypted + ':' + authTag.toString('hex');
+    // Combine IV + encrypted data for CBC mode
+    const result = iv.toString('hex') + ':' + encrypted;
     return result;
   } catch (error) {
     console.error('Error encrypting secret:', error);
-    throw new Error('Failed to encrypt webhook secret');
+    throw new Error(`Failed to encrypt webhook secret: ${error.message}`);
   }
 }
 
@@ -47,16 +45,14 @@ export function decryptSecret(encryptedData: string): string {
     const key = getEncryptionKey();
     const parts = encryptedData.split(':');
     
-    if (parts.length !== 3) {
+    if (parts.length !== 2) {
       throw new Error('Invalid encrypted data format');
     }
     
     const iv = Buffer.from(parts[0], 'hex');
     const encrypted = parts[1];
-    const authTag = Buffer.from(parts[2], 'hex');
     
-    const decipher = crypto.createDecipherGCM(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');

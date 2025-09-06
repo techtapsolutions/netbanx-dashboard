@@ -81,13 +81,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Convert direct debit webhook to standard format
+    const standardPayload = {
+      id: payload.id || uuidv4(),
+      eventType: payload.eventType || eventType || 'DIRECT_DEBIT_UPDATE',
+      eventData: {
+        id: payload.resourceId || payload.payload?.directDebitId || uuidv4(),
+        merchantRefNum: payload.payload?.merchantRefNum || `DD-${Date.now()}`,
+        amount: payload.payload?.amount,
+        currencyCode: payload.payload?.currency,
+        status: payload.payload?.status,
+        txnTime: payload.eventDate || timestamp,
+        paymentHandleToken: payload.payload?.mandateId,
+      }
+    };
+
     // Create webhook event
     const webhookEvent: WebhookEvent = {
       id: uuidv4(),
       timestamp,
       eventType: payload.eventType || eventType || 'DIRECT_DEBIT_UPDATE',
       source: 'paysafe-direct-debit',
-      payload: payload,
+      payload: standardPayload,
       processed: true,
     };
 
@@ -125,7 +140,15 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       eventType: 'DD_WEBHOOK_ERROR',
       source: 'paysafe-direct-debit',
-      payload: { error: 'Processing failed', originalBody: body },
+      payload: {
+        id: 'error',
+        eventType: 'DD_WEBHOOK_ERROR',
+        eventData: {
+          id: 'error',
+          merchantRefNum: 'ERROR',
+          status: 'FAILED'
+        }
+      },
       processed: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };

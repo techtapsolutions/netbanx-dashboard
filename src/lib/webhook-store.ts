@@ -35,11 +35,11 @@ class WebhookStore {
   }
 
   private convertToTransaction(event: WebhookEvent): Transaction {
-    const eventData = event.payload.eventData;
+    const eventData = event.payload.eventData || {};
     
     return {
-      id: eventData.id,
-      merchantRefNum: eventData.merchantRefNum,
+      id: eventData.id || event.payload.id || `webhook-${event.id}`,
+      merchantRefNum: eventData.merchantRefNum || `REF-${event.id.substring(0, 8).toUpperCase()}`,
       amount: eventData.amount || 0,
       currency: eventData.currencyCode || 'USD',
       status: this.mapStatus(eventData.status || event.eventType),
