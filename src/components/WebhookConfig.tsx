@@ -59,7 +59,7 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
                 type="text"
                 value={webhookUrl}
                 readOnly
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm text-gray-900"
               />
               <button
                 onClick={copyToClipboard}
@@ -78,7 +78,7 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 HTTP Method
               </label>
-              <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
+              <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-900 font-medium">
                 POST
               </div>
             </div>
@@ -86,7 +86,7 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Content Type
               </label>
-              <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
+              <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-900 font-medium">
                 application/json
               </div>
             </div>
@@ -107,7 +107,7 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
               <select
                 value={testEventType}
                 onChange={(e) => setTestEventType(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 {eventTypes.map(type => (
                   <option key={type} value={type}>
@@ -126,7 +126,7 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
                 max="10"
                 value={testCount}
                 onChange={(e) => setTestCount(parseInt(e.target.value) || 1)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
