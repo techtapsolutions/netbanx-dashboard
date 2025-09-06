@@ -49,10 +49,11 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
       <div className="bg-white p-6 rounded-lg shadow-sm border">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Webhook Endpoint Configuration</h3>
         
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Primary Webhook URL */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Webhook URL
+              Primary Webhook URL
             </label>
             <div className="flex items-center space-x-2">
               <input
@@ -69,8 +70,75 @@ export function WebhookConfig({ onGenerateTest, onClearData }: WebhookConfigProp
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Use this URL as your webhook endpoint in Netbanx/Paysafe configuration
+              Primary endpoint with HMAC verification and comprehensive logging
             </p>
+          </div>
+
+          {/* All Available Endpoints */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              All Available Webhook Endpoints
+            </label>
+            <div className="space-y-3">
+              {/* Credit Card Payment Endpoints */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-2">Credit Card Payment Webhooks</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-900">/api/webhooks/netbanx</span>
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">PRIMARY</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-600">/webhooks/netbanx</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">ALIAS</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-600">/netbanx</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">ALIAS</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-600">/webhook</span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">ALIAS</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Status Webhooks */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-2">Account Status Webhooks</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-900">/api/webhooks/account-status</span>
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">SPECIALIZED</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">Account onboarding, approval, rejection, status changes</p>
+                </div>
+              </div>
+
+              {/* Direct Debit Webhooks */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-2">Direct Debit Payment Webhooks</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-900">/api/webhooks/direct-debit</span>
+                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">SPECIALIZED</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">Direct debit transactions, mandate management, bank payments</p>
+                </div>
+              </div>
+
+              {/* Alternate Payment Webhooks */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-2">Alternate Payment Webhooks</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-gray-900">/api/webhooks/alternate-payments</span>
+                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">SPECIALIZED</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">PayPal, Apple Pay, Google Pay, Venmo, Skrill, and other digital wallets</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
