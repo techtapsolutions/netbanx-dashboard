@@ -39,13 +39,10 @@ interface DirectDebitWebhook {
 }
 
 export async function POST(request: NextRequest) {
-  // SUPER MINIMAL TEST - No external dependencies
-  return NextResponse.json({
-    success: true,
-    message: "MINIMAL TEST - Route is working",
-    timestamp: new Date().toISOString(),
-    test: "minimal-post-function"
-  });
+  try {
+    // Get the raw body for signature verification
+    const body = await request.text();
+    const timestamp = new Date().toISOString();
     
     // Get headers for validation
     const signature = request.headers.get('x-paysafe-signature') || 
@@ -94,9 +91,8 @@ export async function POST(request: NextRequest) {
         isFromTestEndpoint
       });
       
-      // For now, allow unsigned requests for Netbanx testing but log them  
+      // For now, allow unsigned requests for Netbanx testing but log them
       // In a real production system, you'd want to enable strict validation after testing
-      // Updated: 2025-09-06 - Force deployment
     }
 
     // Convert direct debit webhook to standard format
