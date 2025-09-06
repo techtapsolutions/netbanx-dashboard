@@ -4,16 +4,30 @@ import { WebhookEvent } from '@/types/webhook';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
-interface PaysafeAccountStatusWebhook {
+interface DirectDebitWebhook {
   id: string; // Unique request ID
-  resourceId: string; // Account number being updated
+  resourceId: string; // Direct Debit transaction ID
   mode: 'live' | 'test'; // Event mode
-  eventDate: string; // Timestamp of status change
-  eventType: string; // Status change type (e.g., "ACCT_ENABLED")
+  eventDate: string; // Timestamp of event
+  eventType: string; // Event type (e.g., "DD_PAYMENT_COMPLETED", "DD_PAYMENT_FAILED")
   payload: {
-    partnerId: number;
-    acctStatus: string; // Current account status
+    transactionId: string;
+    directDebitId: string; // Direct Debit ID
     accountNumber: string;
+    amount: number;
+    currency: string;
+    status: string;
+    merchantRefNum?: string;
+    customerId?: string;
+    mandateId?: string;
+    description?: string;
+    reason?: string; // For failures or returns
+    returnCode?: string;
+    bankAccount?: {
+      accountNumber: string;
+      sortCode: string;
+      accountHolderName: string;
+    };
     [key: string]: any; // Additional fields
   };
 }
@@ -24,7 +38,7 @@ export async function POST(request: NextRequest) {
     const body = await request.text();
     const timestamp = new Date().toISOString();
     
-    // Get headers for validation - check multiple possible header names
+    // Get headers for validation
     const signature = request.headers.get('x-paysafe-signature') || 
                      request.headers.get('x-netbanx-signature') || 
                      request.headers.get('x-signature') ||
@@ -34,7 +48,7 @@ export async function POST(request: NextRequest) {
                      request.headers.get('x-event-type');
 
     // Log incoming webhook for debugging
-    console.log('Received Paysafe Account Status webhook:', {
+    console.log('Received Direct Debit webhook:', {
       url: request.url,
       method: request.method,
       eventType,
@@ -45,7 +59,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Parse the JSON payload
-    let payload: PaysafeAccountStatusWebhook;
+    let payload: DirectDebitWebhook;
     try {
       payload = JSON.parse(body);
     } catch (error) {
@@ -71,8 +85,8 @@ export async function POST(request: NextRequest) {
     const webhookEvent: WebhookEvent = {
       id: uuidv4(),
       timestamp,
-      eventType: payload.eventType || eventType || 'ACCOUNT_STATUS_UPDATE',
-      source: 'paysafe-accounts',
+      eventType: payload.eventType || eventType || 'DIRECT_DEBIT_UPDATE',
+      source: 'paysafe-direct-debit',
       payload: payload,
       processed: true,
     };
@@ -80,35 +94,37 @@ export async function POST(request: NextRequest) {
     // Store the webhook event
     webhookStore.addWebhookEvent(webhookEvent);
 
-    // Process account status update
-    await processAccountStatusUpdate(payload);
+    // Process Direct Debit transaction
+    await processDirectDebitTransaction(payload);
 
-    console.log('Successfully processed account status webhook:', {
+    console.log('Successfully processed Direct Debit webhook:', {
       id: webhookEvent.id,
       eventType: webhookEvent.eventType,
-      accountNumber: payload.payload.accountNumber,
-      acctStatus: payload.payload.acctStatus,
+      transactionId: payload.payload.transactionId,
+      directDebitId: payload.payload.directDebitId,
+      amount: payload.payload.amount,
+      status: payload.payload.status,
     });
 
     // Return success response
     return NextResponse.json(
       { 
         success: true, 
-        message: 'Account status webhook processed successfully',
+        message: 'Direct Debit webhook processed successfully',
         webhookId: webhookEvent.id 
       },
       { status: 200 }
     );
 
   } catch (error) {
-    console.error('Error processing account status webhook:', error);
+    console.error('Error processing Direct Debit webhook:', error);
     
     // Log failed webhook event
     const failedEvent: WebhookEvent = {
       id: uuidv4(),
       timestamp: new Date().toISOString(),
-      eventType: 'ACCOUNT_WEBHOOK_ERROR',
-      source: 'paysafe-accounts',
+      eventType: 'DD_WEBHOOK_ERROR',
+      source: 'paysafe-direct-debit',
       payload: { error: 'Processing failed', originalBody: body },
       processed: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -124,59 +140,72 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  // Health check endpoint for account status webhooks
+  // Health check endpoint for Direct Debit webhooks
   const stats = webhookStore.getWebhookStats();
   
   return NextResponse.json({
     status: 'active',
-    endpoint: '/api/webhooks/account-status',
-    description: 'Paysafe Account Status Webhooks (Account Onboarding & Management)',
-    supportedStatuses: [
-      'Approved', 'Deferred', 'Disabled', 'Enabled', 
-      'Pending', 'Processing', 'Rejected', 'Returned', 
-      'Submitted', 'Waiting', 'Withdrawn'
-    ],
+    endpoint: '/api/webhooks/direct-debit',
+    description: 'Paysafe Direct Debit Webhooks',
     supportedEventTypes: [
-      'ACCT_APPROVED', 'ACCT_ENABLED', 'ACCT_DISABLED',
-      'ACCT_PENDING', 'ACCT_REJECTED', 'ACCT_DEFERRED',
-      'ACCT_PROCESSING', 'ACCT_RETURNED', 'ACCT_SUBMITTED',
-      'ACCT_WAITING', 'ACCT_WITHDRAWN'
+      'DD_PAYMENT_COMPLETED',
+      'DD_PAYMENT_FAILED', 
+      'DD_PAYMENT_PENDING',
+      'DD_PAYMENT_RETURNED',
+      'DD_PAYMENT_CANCELLED',
+      'DD_MANDATE_CREATED',
+      'DD_MANDATE_CANCELLED',
+      'DD_MANDATE_FAILED'
+    ],
+    supportedStatuses: [
+      'COMPLETED', 'FAILED', 'PENDING', 'RETURNED', 'CANCELLED',
+      'PROCESSING', 'SETTLED', 'DISPUTED'
     ],
     stats,
     timestamp: new Date().toISOString(),
   });
 }
 
-// Process account status update
-async function processAccountStatusUpdate(webhook: PaysafeAccountStatusWebhook) {
+// Process Direct Debit transaction
+async function processDirectDebitTransaction(webhook: DirectDebitWebhook) {
   try {
     const { payload } = webhook;
     
-    console.log('Processing account status update:', {
+    console.log('Processing Direct Debit transaction:', {
       eventType: webhook.eventType,
+      transactionId: payload.transactionId,
+      directDebitId: payload.directDebitId,
       accountNumber: payload.accountNumber,
-      status: payload.acctStatus,
-      partnerId: payload.partnerId,
+      amount: payload.amount,
+      currency: payload.currency,
+      status: payload.status,
+      merchantRefNum: payload.merchantRefNum,
       mode: webhook.mode,
     });
 
-    // Here you could integrate with database or external systems
-    // For now, we're just logging and storing in memory
+    // Here you would integrate with database or external systems
+    // For now, we're logging and storing in memory
     
-    // Example: Update account status in database
+    // Example: Store Direct Debit transaction
     /*
-    await updateAccountStatus({
+    await storeDirectDebitTransaction({
+      transactionId: payload.transactionId,
+      directDebitId: payload.directDebitId,
       accountNumber: payload.accountNumber,
-      status: payload.acctStatus,
+      amount: payload.amount,
+      currency: payload.currency,
+      status: payload.status,
+      merchantRefNum: payload.merchantRefNum,
       eventType: webhook.eventType,
       eventDate: webhook.eventDate,
-      partnerId: payload.partnerId,
       mode: webhook.mode,
+      mandateId: payload.mandateId,
+      bankAccount: payload.bankAccount,
     });
     */
 
   } catch (error) {
-    console.error('Error processing account status update:', error);
+    console.error('Error processing Direct Debit transaction:', error);
     throw error;
   }
 }
@@ -184,32 +213,25 @@ async function processAccountStatusUpdate(webhook: PaysafeAccountStatusWebhook) 
 // HMAC signature validation using Paysafe secret key
 function validateSignature(body: string, signature: string | null): boolean {
   if (!signature) {
-    console.warn('No signature provided in account status webhook request');
-    // Allow webhooks without signatures in development only
+    console.warn('No signature provided in Direct Debit webhook request');
     return process.env.NODE_ENV !== 'production';
   }
   
   try {
-    // Paysafe HMAC secret key (base64 encoded)
     const webhookSecret = 'YzM2ZjA4OGYyMjAxODA3MmRkYjBkZjA1ZmY2MzM2MjNmZmVjZDAzZjFiYWMyMjlkZTc0YTg3MGEyNDg1NjIxNg==';
     
     // Try multiple approaches for the secret key
-    const secretKey1 = Buffer.from(webhookSecret, 'base64').toString('utf-8');  // Decoded
-    const secretKey2 = webhookSecret;  // Direct base64 string
-    const secretKey3 = Buffer.from(webhookSecret, 'base64');  // Binary buffer
+    const secretKey1 = Buffer.from(webhookSecret, 'base64').toString('utf-8');
+    const secretKey2 = webhookSecret;
+    const secretKey3 = Buffer.from(webhookSecret, 'base64');
     
     // Try different secret key formats and signature computations
     const signatures = [];
     
-    // Approach 1: Use decoded secret key
     signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('hex'));
     signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('base64'));
-    
-    // Approach 2: Use base64 secret key directly
     signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('hex'));
     signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('base64'));
-    
-    // Approach 3: Use binary buffer secret key
     signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('hex'));
     signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('base64'));
     
@@ -226,15 +248,15 @@ function validateSignature(body: string, signature: string | null): boolean {
     
     const isValid = possibleSignatures.includes(signature);
     
-    console.log('Account webhook signature validation:', {
+    console.log('Direct Debit webhook signature validation:', {
       provided: signature,
-      possibleMatches: signatures.slice(0, 3), // Log first few for debugging
+      possibleMatches: signatures.slice(0, 3),
       valid: isValid
     });
     
     return isValid;
   } catch (error) {
-    console.error('Error validating account webhook signature:', error);
+    console.error('Error validating Direct Debit webhook signature:', error);
     return false;
   }
 }

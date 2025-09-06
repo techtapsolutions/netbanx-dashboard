@@ -30,11 +30,28 @@ export async function GET(request: NextRequest) {
     },
     {
       path: '/api/webhooks/account-status',
-      description: 'Paysafe Account Status Webhooks',
+      description: 'Paysafe Account Status Webhooks (Account Onboarding & Management)',
       methods: ['POST', 'GET'],
-      features: ['Account status updates', 'Account approval/rejection', 'Multiple status types'],
+      features: ['Account status updates', 'Account approval/rejection', 'Onboarding status changes'],
       supportedStatuses: ['Approved', 'Deferred', 'Disabled', 'Enabled', 'Pending', 'Processing', 'Rejected', 'Returned', 'Submitted', 'Waiting', 'Withdrawn'],
       supportedEventTypes: ['ACCT_APPROVED', 'ACCT_ENABLED', 'ACCT_DISABLED', 'ACCT_PENDING', 'ACCT_REJECTED', 'ACCT_DEFERRED', 'ACCT_PROCESSING', 'ACCT_RETURNED', 'ACCT_SUBMITTED', 'ACCT_WAITING', 'ACCT_WITHDRAWN']
+    },
+    {
+      path: '/api/webhooks/direct-debit',
+      description: 'Paysafe Direct Debit Payment Webhooks',
+      methods: ['POST', 'GET'],
+      features: ['Direct debit transactions', 'Mandate management', 'Bank account payments'],
+      supportedEventTypes: ['DD_PAYMENT_COMPLETED', 'DD_PAYMENT_FAILED', 'DD_PAYMENT_PENDING', 'DD_PAYMENT_RETURNED', 'DD_PAYMENT_CANCELLED', 'DD_MANDATE_CREATED', 'DD_MANDATE_CANCELLED', 'DD_MANDATE_FAILED'],
+      supportedStatuses: ['COMPLETED', 'FAILED', 'PENDING', 'RETURNED', 'CANCELLED', 'PROCESSING', 'SETTLED', 'DISPUTED']
+    },
+    {
+      path: '/api/webhooks/alternate-payments',
+      description: 'Paysafe Alternate Payment Webhooks',
+      methods: ['POST', 'GET'],
+      features: ['Digital wallets', 'Alternative payment methods', 'Third-party payments'],
+      supportedPaymentMethods: ['PAYPAL', 'APPLE_PAY', 'GOOGLE_PAY', 'VENMO', 'SKRILL', 'NETELLER', 'PAYSAFECARD', 'SOFORT', 'GIROPAY', 'IDEAL', 'BANCONTACT', 'EPS', 'P24', 'MULTIBANCO', 'MYBANK'],
+      supportedEventTypes: ['AP_PAYMENT_COMPLETED', 'AP_PAYMENT_FAILED', 'AP_PAYMENT_PENDING', 'AP_PAYMENT_CANCELLED', 'AP_REFUND_COMPLETED', 'AP_REFUND_FAILED', 'AP_REFUND_PENDING'],
+      supportedStatuses: ['COMPLETED', 'FAILED', 'PENDING', 'CANCELLED', 'PROCESSING', 'SETTLED', 'REFUNDED']
     }
   ];
 
