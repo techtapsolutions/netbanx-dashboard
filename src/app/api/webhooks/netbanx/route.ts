@@ -3,6 +3,7 @@ import { webhookStore } from '@/lib/webhook-store';
 import { WebhookEvent } from '@/types/webhook';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { getWebhookSecret } from '@/lib/webhook-secret-store';
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate webhook signature if present (in production you'd verify against a secret)
-    const isSignatureValid = validateSignature(body, signature);
+    const isSignatureValid = await validateSignature(body, signature);
     
     if (!isSignatureValid && process.env.NODE_ENV === 'production') {
       console.error('Invalid webhook signature');
@@ -117,8 +118,8 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// HMAC signature validation using Netbanx secret key
-function validateSignature(body: string, signature: string | null): boolean {
+// HMAC signature validation using stored encrypted secret key
+async function validateSignature(body: string, signature: string | null): Promise<boolean> {
   if (!signature) {
     console.warn('No signature provided in webhook request');
     // Allow webhooks without signatures in development only
@@ -126,51 +127,71 @@ function validateSignature(body: string, signature: string | null): boolean {
   }
   
   try {
-    // Netbanx HMAC secret key (base64 encoded)
-    const webhookSecret = 'YzM2ZjA4OGYyMjAxODA3MmRkYjBkZjA1ZmY2MzM2MjNmZmVjZDAzZjFiYWMyMjlkZTc0YTg3MGEyNDg1NjIxNg==';
+    // Get the stored secret for netbanx endpoint
+    const secretData = await getWebhookSecret('netbanx');
     
+    if (!secretData) {
+      console.warn('No stored secret found for netbanx endpoint, falling back to hardcoded key');
+      
+      // Fallback to hardcoded key for backward compatibility
+      const fallbackSecret = 'YzM2ZjA4OGYyMjAxODA3MmRkYjBkZjA1ZmY2MzM2MjNmZmVjZDAzZjFiYWMyMjlkZTc0YTg3MGEyNDg1NjIxNg==';
+      return validateWithKey(body, signature, fallbackSecret);
+    }
+    
+    // Use the stored key
+    return validateWithKey(body, signature, secretData.key, secretData.algorithm);
+  } catch (error) {
+    console.error('Error validating webhook signature:', error);
+    return false;
+  }
+}
+
+// Helper function to validate with a specific key
+function validateWithKey(body: string, signature: string, secretKey: string, algorithm: string = 'sha256'): boolean {
+  try {
     // Try multiple approaches for the secret key
-    const secretKey1 = Buffer.from(webhookSecret, 'base64').toString('utf-8');  // Decoded
-    const secretKey2 = webhookSecret;  // Direct base64 string
-    const secretKey3 = Buffer.from(webhookSecret, 'base64');  // Binary buffer
+    const secretKey1 = Buffer.from(secretKey, 'base64').toString('utf-8');  // Decoded
+    const secretKey2 = secretKey;  // Direct string
+    const secretKey3 = Buffer.from(secretKey, 'base64');  // Binary buffer
     
     // Try different secret key formats and signature computations
     const signatures = [];
     
     // Approach 1: Use decoded secret key
-    signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('base64'));
+    signatures.push(crypto.createHmac(algorithm, secretKey1).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac(algorithm, secretKey1).update(body, 'utf8').digest('base64'));
     
     // Approach 2: Use base64 secret key directly
-    signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('base64'));
+    signatures.push(crypto.createHmac(algorithm, secretKey2).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac(algorithm, secretKey2).update(body, 'utf8').digest('base64'));
     
     // Approach 3: Use binary buffer secret key
-    signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('base64'));
+    signatures.push(crypto.createHmac(algorithm, secretKey3).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac(algorithm, secretKey3).update(body, 'utf8').digest('base64'));
     
     // Create all possible signature formats
     const possibleSignatures = [];
     signatures.forEach(sig => {
       possibleSignatures.push(sig);
       possibleSignatures.push(sig.toUpperCase());
-      possibleSignatures.push(`sha256=${sig}`);
-      possibleSignatures.push(`SHA256=${sig}`);
-      possibleSignatures.push(`sha256=${sig.toUpperCase()}`);
-      possibleSignatures.push(`SHA256=${sig.toUpperCase()}`);
+      possibleSignatures.push(`${algorithm}=${sig}`);
+      possibleSignatures.push(`${algorithm.toUpperCase()}=${sig}`);
+      possibleSignatures.push(`${algorithm}=${sig.toUpperCase()}`);
+      possibleSignatures.push(`${algorithm.toUpperCase()}=${sig.toUpperCase()}`);
     });
     
     const isValid = possibleSignatures.includes(signature);
     
-    console.log('Signature validation:', {
+    console.log('Webhook signature validation:', {
       provided: signature,
+      algorithm,
       possibleMatches: signatures.slice(0, 3), // Log first few for debugging
       valid: isValid
     });
     
     return isValid;
   } catch (error) {
-    console.error('Error validating signature:', error);
+    console.error('Error validating with key:', error);
     return false;
   }
 }

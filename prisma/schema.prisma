@@ -140,6 +140,7 @@ model Company {
   apiTokens       ApiToken[]
   notifications   NotificationSetting[]
   accounts        Account[]
+  webhookSecrets  WebhookSecret[]
   
   @@map("companies")
 }
@@ -417,4 +418,37 @@ model PaymentMethod {
   @@index([externalId])
   @@index([status])
   @@map("payment_methods")
+}
+
+model WebhookSecret {
+  id            String   @id @default(cuid())
+  endpoint      String   @unique // e.g., "netbanx", "account-status", "direct-debit", "alternate-payments"
+  name          String   // Display name for the endpoint
+  description   String?  // Optional description
+
+  // Encrypted HMAC key
+  encryptedKey  String   // AES encrypted HMAC secret key
+  algorithm     String   @default("sha256") // HMAC algorithm (sha256, sha1, etc.)
+  
+  // Key metadata
+  keyVersion    Int      @default(1) // For key rotation
+  isActive      Boolean  @default(true)
+  
+  // Company association (optional - for multi-tenant support)
+  companyId     String?
+  company       Company? @relation(fields: [companyId], references: [id])
+  
+  // Usage tracking
+  lastUsedAt    DateTime?
+  usageCount    Int      @default(0)
+  
+  // Timestamps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdBy     String?  // User ID who created the key
+  
+  @@index([endpoint])
+  @@index([companyId])
+  @@index([isActive])
+  @@map("webhook_secrets")
 }
