@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { encryptSecret, decryptSecret, validateSecretKey, hashSecretForLogging } from '@/lib/encryption';
+import { ensureWebhookSecretsTable } from '@/lib/db-init';
 import { v4 as uuidv4 } from 'uuid';
 
 // Get all webhook secrets (without exposing the actual keys)
 export async function GET(request: NextRequest) {
   try {
+    // Ensure the table exists before querying
+    const tableReady = await ensureWebhookSecretsTable();
+    if (!tableReady) {
+      return NextResponse.json({
+        success: false,
+        error: 'Database schema not ready'
+      }, { status: 500 });
+    }
+
     const secrets = await db.webhookSecret.findMany({
       select: {
         id: true,
@@ -43,6 +53,15 @@ export async function GET(request: NextRequest) {
 // Create or update a webhook secret
 export async function POST(request: NextRequest) {
   try {
+    // Ensure the table exists before operations
+    const tableReady = await ensureWebhookSecretsTable();
+    if (!tableReady) {
+      return NextResponse.json({
+        success: false,
+        error: 'Database schema not ready'
+      }, { status: 500 });
+    }
+
     const body = await request.json();
     const { endpoint, name, description, secretKey, algorithm = 'sha256', companyId } = body;
 

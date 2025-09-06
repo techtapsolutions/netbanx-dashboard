@@ -1,5 +1,6 @@
 import { db } from '@/lib/database';
 import { decryptSecret } from '@/lib/encryption';
+import { ensureWebhookSecretsTable } from '@/lib/db-init';
 
 // Cache for webhook secrets to avoid frequent database queries
 const secretsCache = new Map<string, { key: string; lastFetched: number; algorithm: string }>();
@@ -12,6 +13,13 @@ export async function getWebhookSecret(endpoint: string): Promise<{ key: string;
     const cached = secretsCache.get(endpoint);
     if (cached && (Date.now() - cached.lastFetched) < CACHE_TTL) {
       return { key: cached.key, algorithm: cached.algorithm };
+    }
+
+    // Ensure table exists
+    const tableReady = await ensureWebhookSecretsTable();
+    if (!tableReady) {
+      console.warn('Webhook secrets table not ready, returning null');
+      return null;
     }
 
     // Fetch from database

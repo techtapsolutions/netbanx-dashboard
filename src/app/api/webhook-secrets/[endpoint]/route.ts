@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { decryptSecret } from '@/lib/encryption';
+import { ensureWebhookSecretsTable } from '@/lib/db-init';
 
 interface RouteParams {
   params: Promise<{ endpoint: string }>;
@@ -9,6 +10,15 @@ interface RouteParams {
 // Get a specific webhook secret (for internal use only - returns decrypted key)
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Ensure the table exists before querying
+    const tableReady = await ensureWebhookSecretsTable();
+    if (!tableReady) {
+      return NextResponse.json({
+        success: false,
+        error: 'Database schema not ready'
+      }, { status: 500 });
+    }
+
     const { endpoint } = await params;
     
     // This endpoint is for internal use only - could add API key validation here
