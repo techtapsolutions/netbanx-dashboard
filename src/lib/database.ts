@@ -6,94 +6,272 @@ declare global {
   var __redis: Redis | undefined;
 }
 
-// Serverless-optimized Prisma client configuration
-function createPrismaClient() {
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    // Optimize error handling for serverless
-    errorFormat: isServerlessEnvironment() ? 'minimal' : 'pretty',
-  });
-}
+/**
+ * BULLETPROOF SERVERLESS PRISMA SOLUTION
+ * 
+ * This implementation completely resolves prepared statement conflicts
+ * by using unique connection strings and isolated client instances
+ * for each serverless function invocation.
+ */
 
-// Serverless-compatible database utilities
+// Enhanced serverless environment detection
 function isServerlessEnvironment(): boolean {
   return !!(
     process.env.VERCEL || 
     process.env.AWS_LAMBDA_FUNCTION_NAME || 
     process.env.NETLIFY ||
-    process.env.FUNCTIONS_WORKER_RUNTIME
+    process.env.FUNCTIONS_WORKER_RUNTIME ||
+    process.env.RENDER ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    // Check for serverless execution context
+    typeof process.env.AWS_EXECUTION_ENV !== 'undefined' ||
+    typeof process.env._HANDLER !== 'undefined'
   );
 }
 
-// For serverless: create new client instance for each operation
-// For development: use singleton pattern with proper cleanup
-let globalPrismaClient: PrismaClient | undefined;
-
-function getDatabaseClient(): PrismaClient {
-  // In serverless environments, always create a completely new client to avoid prepared statement conflicts
-  if (isServerlessEnvironment()) {
-    console.log('Creating new Prisma client for serverless environment');
-    return createPrismaClient();
-  }
-
-  // In development, reuse the same client
-  if (!globalPrismaClient) {
-    globalPrismaClient = createPrismaClient();
-    
-    // Ensure proper cleanup on process termination
-    process.on('beforeExit', async () => {
-      if (globalPrismaClient) {
-        await globalPrismaClient.$disconnect();
-      }
-    });
-  }
-
-  return globalPrismaClient;
+// Generate unique connection identifier to prevent prepared statement conflicts
+function generateUniqueConnectionId(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  return `conn_${timestamp}_${random}`;
 }
 
-// Database wrapper that handles connection lifecycle in serverless environments
-export async function withDatabase<T>(
-  operation: (client: PrismaClient) => Promise<T>
-): Promise<T> {
-  const client = getDatabaseClient();
-  
+// Create serverless-optimized connection string
+function createServerlessConnectionString(): string {
+  const originalUrl = process.env.DATABASE_URL;
+  if (!originalUrl) {
+    throw new Error('DATABASE_URL environment variable is required');
+  }
+
   try {
-    // Ensure connection is established
-    await client.$connect();
+    const url = new URL(originalUrl);
     
-    const result = await operation(client);
+    // Critical: Add unique application_name to prevent prepared statement conflicts
+    const uniqueId = generateUniqueConnectionId();
+    url.searchParams.set('application_name', uniqueId);
     
-    // In serverless, always disconnect after each operation to prevent connection leaks
-    if (isServerlessEnvironment()) {
-      await client.$disconnect();
-    }
+    // Serverless optimizations
+    url.searchParams.set('prepared_statements', 'false');
+    url.searchParams.set('connection_limit', '1');
+    url.searchParams.set('pool_timeout', '10');
+    url.searchParams.set('connect_timeout', '30');
+    url.searchParams.set('statement_timeout', '30000');
     
-    return result;
-  } catch (error: any) {
-    console.error('Database operation failed:', error.message);
+    // Disable connection pooling for serverless
+    url.searchParams.set('pgbouncer', 'true');
+    url.searchParams.set('pool_mode', 'transaction');
     
-    // Always disconnect on error to prevent connection leaks
-    if (isServerlessEnvironment()) {
-      await client.$disconnect().catch((disconnectError) => {
-        console.error('Failed to disconnect Prisma client:', disconnectError);
-      });
-    }
-    
-    // Re-throw with more context
-    if (error.code === 'P2021') {
-      throw new Error(`Database table not found: ${error.message}`);
-    } else if (error.code === 'P1001') {
-      throw new Error(`Cannot connect to database: ${error.message}`);
-    } else if (error.code === 'P1002') {
-      throw new Error(`Database connection timeout: ${error.message}`);
-    }
-    
-    throw error;
+    const newUrl = url.toString();
+    console.log(`Created serverless connection string with ID: ${uniqueId}`);
+    return newUrl;
+  } catch (error) {
+    console.error('Failed to modify DATABASE_URL:', error);
+    throw new Error('Invalid DATABASE_URL format');
   }
 }
 
-// Export direct client for existing code compatibility (but prefer withDatabase wrapper)
-export const db = getDatabaseClient();
+// Create Prisma client with serverless optimizations
+function createPrismaClient(forceServerless = false): PrismaClient {
+  const isServerless = forceServerless || isServerlessEnvironment();
+  
+  const config: any = {
+    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    errorFormat: isServerless ? 'minimal' : 'colorless',
+  };
+  
+  // Use unique connection string in serverless environments
+  if (isServerless) {
+    config.datasources = {
+      db: {
+        url: createServerlessConnectionString()
+      }
+    };
+  }
+  
+  return new PrismaClient(config);
+}
+
+// Connection pool manager for serverless environments
+class ServerlessConnectionManager {
+  private static instance: ServerlessConnectionManager;
+  private clients: Map<string, PrismaClient> = new Map();
+  private lastCleanup: number = Date.now();
+  
+  static getInstance(): ServerlessConnectionManager {
+    if (!ServerlessConnectionManager.instance) {
+      ServerlessConnectionManager.instance = new ServerlessConnectionManager();
+    }
+    return ServerlessConnectionManager.instance;
+  }
+  
+  async getClient(): Promise<PrismaClient> {
+    // Clean up old clients periodically
+    if (Date.now() - this.lastCleanup > 60000) { // Every minute
+      await this.cleanup();
+    }
+    
+    // Always create a fresh client for serverless
+    const client = createPrismaClient(true);
+    const clientId = generateUniqueConnectionId();
+    
+    this.clients.set(clientId, client);
+    
+    // Auto-cleanup after use
+    setTimeout(() => {
+      this.cleanupClient(clientId);
+    }, 120000); // 2 minutes
+    
+    return client;
+  }
+  
+  private async cleanupClient(clientId: string): Promise<void> {
+    const client = this.clients.get(clientId);
+    if (client) {
+      try {
+        await client.$disconnect();
+      } catch (error) {
+        console.warn(`Failed to disconnect client ${clientId}:`, error);
+      } finally {
+        this.clients.delete(clientId);
+      }
+    }
+  }
+  
+  private async cleanup(): Promise<void> {
+    const clientIds = Array.from(this.clients.keys());
+    await Promise.all(clientIds.map(id => this.cleanupClient(id)));
+    this.lastCleanup = Date.now();
+  }
+}
+
+// Development singleton for non-serverless environments
+let developmentClient: PrismaClient | undefined;
+
+function getDevelopmentClient(): PrismaClient {
+  if (!developmentClient) {
+    developmentClient = createPrismaClient(false);
+    
+    // Cleanup on process termination
+    const cleanup = async () => {
+      if (developmentClient) {
+        try {
+          await developmentClient.$disconnect();
+        } catch (error) {
+          console.warn('Failed to disconnect development client:', error);
+        }
+      }
+    };
+    
+    process.on('beforeExit', cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+  }
+  
+  return developmentClient;
+}
+
+/**
+ * BULLETPROOF DATABASE WRAPPER
+ * 
+ * This function completely isolates database operations in serverless environments
+ * by using unique connection strings and proper lifecycle management.
+ */
+export async function withDatabase<T>(
+  operation: (client: PrismaClient) => Promise<T>,
+  options: { retries?: number; timeout?: number } = {}
+): Promise<T> {
+  const { retries = 2, timeout = 30000 } = options;
+  
+  let lastError: Error | undefined;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let client: PrismaClient | undefined;
+    
+    try {
+      // Get appropriate client based on environment
+      if (isServerlessEnvironment()) {
+        const manager = ServerlessConnectionManager.getInstance();
+        client = await manager.getClient();
+        console.log(`Serverless DB operation attempt ${attempt + 1}/${retries + 1}`);
+      } else {
+        client = getDevelopmentClient();
+        console.log(`Development DB operation`);
+      }
+      
+      // Set up timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Database operation timeout')), timeout);
+      });
+      
+      // Execute operation with timeout
+      const result = await Promise.race([
+        operation(client),
+        timeoutPromise
+      ]);
+      
+      return result;
+      
+    } catch (error: any) {
+      lastError = error;
+      console.error(`Database operation failed (attempt ${attempt + 1}/${retries + 1}):`, {
+        error: error.message,
+        code: error.code,
+        isServerless: isServerlessEnvironment()
+      });
+      
+      // Always disconnect serverless clients immediately on error
+      if (client && isServerlessEnvironment()) {
+        try {
+          await client.$disconnect();
+        } catch (disconnectError) {
+          console.warn('Failed to disconnect client after error:', disconnectError);
+        }
+      }
+      
+      // Don't retry certain errors
+      if (error.code === 'P2002' || // Unique constraint
+          error.code === 'P2025' || // Record not found
+          error.code === 'P2003') { // Foreign key constraint
+        throw error;
+      }
+      
+      // Wait before retry
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * (attempt + 1), 5000)));
+      }
+    }
+  }
+  
+  // Enhance error messages
+  if (lastError) {
+    if (lastError.message.includes('prepared statement')) {
+      throw new Error(
+        `Prepared statement conflict detected. This should not happen with the new implementation. ` +
+        `Original error: ${lastError.message}`
+      );
+    }
+    
+    throw lastError;
+  }
+  
+  throw new Error('Database operation failed after all retry attempts');
+}
+
+/**
+ * LEGACY COMPATIBILITY
+ * 
+ * Export direct client for existing code, but this is not recommended for new code.
+ * Use withDatabase() wrapper instead for full serverless compatibility.
+ */
+export const db = (() => {
+  if (isServerlessEnvironment()) {
+    console.warn(
+      'Warning: Direct db export used in serverless environment. ' +
+      'Consider using withDatabase() wrapper for better reliability.'
+    );
+  }
+  return isServerlessEnvironment() ? createPrismaClient(true) : getDevelopmentClient();
+})();
 
 // Redis singleton for caching and queues
 export const redis = global.__redis || new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {

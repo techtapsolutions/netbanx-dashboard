@@ -91,8 +91,9 @@ export async function POST(request: NextRequest) {
         isFromTestEndpoint
       });
       
-      // For now, allow unsigned requests for Netbanx testing but log them
+      // For now, allow unsigned requests for Netbanx testing but log them  
       // In a real production system, you'd want to enable strict validation after testing
+      // Updated: 2025-09-06 - Force deployment
     }
 
     // Convert direct debit webhook to standard format
