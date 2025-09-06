@@ -39,24 +39,13 @@ interface DirectDebitWebhook {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('=== DIRECT DEBIT WEBHOOK ENTRY ===', { 
-    timestamp: new Date().toISOString(),
-    method: request.method,
-    url: request.url 
-  });
-  
-  // TEMPORARY: Return immediately to test if new deployment is working
+  // SUPER MINIMAL TEST - No external dependencies
   return NextResponse.json({
     success: true,
-    message: "DEPLOYMENT TEST - New version deployed successfully",
+    message: "MINIMAL TEST - Route is working",
     timestamp: new Date().toISOString(),
-    version: "2025-09-06-fix-deployed"
+    test: "minimal-post-function"
   });
-  
-  try {
-    // Get the raw body for signature verification
-    const body = await request.text();
-    const timestamp = new Date().toISOString();
     
     // Get headers for validation
     const signature = request.headers.get('x-paysafe-signature') || 
