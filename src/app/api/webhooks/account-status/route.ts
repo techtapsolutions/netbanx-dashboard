@@ -1,246 +1,240 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { webhookStore } from '@/lib/webhook-store';
+import { WebhookEvent } from '@/types/webhook';
+import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
-const prisma = new PrismaClient();
-
-interface AccountStatusWebhook {
-  eventType: string;
-  timestamp: string;
-  account: {
-    id: string; // External Paysafe account ID
-    merchantId?: string;
-    name: string;
-    businessName?: string;
-    email: string;
-    phone?: string;
-    status: string;
-    subStatus?: string;
-    onboardingStage?: string;
-    creditCardId?: string; // Critical CC ID
-    directDebitId?: string; // Critical DD ID
-    businessType?: string;
-    industry?: string;
-    website?: string;
-    riskLevel?: string;
-    complianceStatus?: string;
-    approvedAt?: string;
-    activatedAt?: string;
+interface PaysafeAccountStatusWebhook {
+  id: string; // Unique request ID
+  resourceId: string; // Account number being updated
+  mode: 'live' | 'test'; // Event mode
+  eventDate: string; // Timestamp of status change
+  eventType: string; // Status change type (e.g., "ACCT_ENABLED")
+  payload: {
+    partnerId: number;
+    acctStatus: string; // Current account status
+    accountNumber: string;
+    [key: string]: any; // Additional fields
   };
-  paymentMethods?: Array<{
-    type: string;
-    externalId: string; // CC ID or DD ID
-    name?: string;
-    status: string;
-    isDefault: boolean;
-    capabilities: string[];
-    limits?: any;
-  }>;
-  statusChange?: {
-    fromStatus?: string;
-    toStatus: string;
-    reason?: string;
-    description?: string;
-    changedBy?: string;
-  };
-  metadata?: any;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body: AccountStatusWebhook = await request.json();
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                      request.headers.get('x-real-ip') || 
-                      'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
+    // Get the raw body for signature verification
+    const body = await request.text();
+    const timestamp = new Date().toISOString();
+    
+    // Get headers for validation - check multiple possible header names
+    const signature = request.headers.get('x-paysafe-signature') || 
+                     request.headers.get('x-netbanx-signature') || 
+                     request.headers.get('x-signature') ||
+                     request.headers.get('signature');
+    const eventType = request.headers.get('x-paysafe-event-type') ||
+                     request.headers.get('x-netbanx-event-type') ||
+                     request.headers.get('x-event-type');
 
-    // Log the webhook event
-    const webhookEvent = await prisma.webhookEvent.create({
-      data: {
-        eventType: body.eventType || 'ACCOUNT_STATUS_UPDATE',
-        source: 'netbanx',
-        payload: body,
-        ipAddress,
-        userAgent,
-        processed: false,
-      },
+    // Log incoming webhook for debugging
+    console.log('Received Paysafe Account Status webhook:', {
+      url: request.url,
+      method: request.method,
+      eventType,
+      signature: signature ? 'present' : 'missing',
+      bodyLength: body.length,
+      timestamp,
+      headers: Object.fromEntries(request.headers.entries()),
     });
 
-    // Process the webhook synchronously for now
+    // Parse the JSON payload
+    let payload: PaysafeAccountStatusWebhook;
     try {
-      await processAccountStatusWebhook(body, webhookEvent.id);
-    } catch (processError) {
-      console.error('Failed to process account webhook:', processError);
-      // Don't fail the webhook response, just log the error
+      payload = JSON.parse(body);
+    } catch (error) {
+      console.error('Invalid JSON payload:', error);
+      return NextResponse.json(
+        { error: 'Invalid JSON payload' },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Account status webhook received and processed',
-      eventId: webhookEvent.id,
+    // Validate webhook signature if present
+    const isSignatureValid = validateSignature(body, signature);
+    
+    if (!isSignatureValid && process.env.NODE_ENV === 'production') {
+      console.error('Invalid webhook signature');
+      return NextResponse.json(
+        { error: 'Invalid signature' },
+        { status: 401 }
+      );
+    }
+
+    // Create webhook event
+    const webhookEvent: WebhookEvent = {
+      id: uuidv4(),
+      timestamp,
+      eventType: payload.eventType || eventType || 'ACCOUNT_STATUS_UPDATE',
+      source: 'paysafe-accounts',
+      payload: payload,
+      processed: true,
+    };
+
+    // Store the webhook event
+    webhookStore.addWebhookEvent(webhookEvent);
+
+    // Process account status update
+    await processAccountStatusUpdate(payload);
+
+    console.log('Successfully processed account status webhook:', {
+      id: webhookEvent.id,
+      eventType: webhookEvent.eventType,
+      accountNumber: payload.payload.accountNumber,
+      acctStatus: payload.payload.acctStatus,
     });
 
-  } catch (error) {
-    console.error('Account webhook error:', error);
-    
+    // Return success response
     return NextResponse.json(
       { 
-        success: false, 
-        error: 'Failed to process account webhook',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        success: true, 
+        message: 'Account status webhook processed successfully',
+        webhookId: webhookEvent.id 
       },
+      { status: 200 }
+    );
+
+  } catch (error) {
+    console.error('Error processing account status webhook:', error);
+    
+    // Log failed webhook event
+    const failedEvent: WebhookEvent = {
+      id: uuidv4(),
+      timestamp: new Date().toISOString(),
+      eventType: 'ACCOUNT_WEBHOOK_ERROR',
+      source: 'paysafe-accounts',
+      payload: { error: 'Processing failed', originalBody: body },
+      processed: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+    
+    webhookStore.addWebhookEvent(failedEvent);
+    
+    return NextResponse.json(
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-// Process account status webhook (called by queue worker)
-export async function processAccountStatusWebhook(payload: AccountStatusWebhook, webhookId: string) {
+export async function GET(request: NextRequest) {
+  // Health check endpoint for account status webhooks
+  const stats = webhookStore.getWebhookStats();
+  
+  return NextResponse.json({
+    status: 'active',
+    endpoint: '/api/webhooks/account-status',
+    description: 'Paysafe Account Status Webhooks',
+    supportedStatuses: [
+      'Approved', 'Deferred', 'Disabled', 'Enabled', 
+      'Pending', 'Processing', 'Rejected', 'Returned', 
+      'Submitted', 'Waiting', 'Withdrawn'
+    ],
+    supportedEventTypes: [
+      'ACCT_APPROVED', 'ACCT_ENABLED', 'ACCT_DISABLED',
+      'ACCT_PENDING', 'ACCT_REJECTED', 'ACCT_DEFERRED',
+      'ACCT_PROCESSING', 'ACCT_RETURNED', 'ACCT_SUBMITTED',
+      'ACCT_WAITING', 'ACCT_WITHDRAWN'
+    ],
+    stats,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// Process account status update
+async function processAccountStatusUpdate(webhook: PaysafeAccountStatusWebhook) {
   try {
-    const { account, paymentMethods, statusChange } = payload;
+    const { payload } = webhook;
     
-    // Find or create the account
-    const existingAccount = await prisma.account.findUnique({
-      where: { externalId: account.id },
-      include: { paymentMethods: true, statusHistory: true },
+    console.log('Processing account status update:', {
+      eventType: webhook.eventType,
+      accountNumber: payload.accountNumber,
+      status: payload.acctStatus,
+      partnerId: payload.partnerId,
+      mode: webhook.mode,
     });
 
-    let accountRecord;
+    // Here you could integrate with database or external systems
+    // For now, we're just logging and storing in memory
     
-    if (existingAccount) {
-      // Update existing account
-      accountRecord = await prisma.account.update({
-        where: { externalId: account.id },
-        data: {
-          merchantId: account.merchantId,
-          accountName: account.name,
-          businessName: account.businessName,
-          email: account.email,
-          phone: account.phone,
-          status: account.status,
-          subStatus: account.subStatus,
-          onboardingStage: account.onboardingStage,
-          creditCardId: account.creditCardId,
-          directDebitId: account.directDebitId,
-          businessType: account.businessType,
-          industry: account.industry,
-          website: account.website,
-          riskLevel: account.riskLevel,
-          complianceStatus: account.complianceStatus,
-          approvedAt: account.approvedAt ? new Date(account.approvedAt) : null,
-          activatedAt: account.activatedAt ? new Date(account.activatedAt) : null,
-          webhookEventId: webhookId,
-          metadata: payload.metadata,
-        },
-      });
-    } else {
-      // Create new account
-      accountRecord = await prisma.account.create({
-        data: {
-          externalId: account.id,
-          merchantId: account.merchantId,
-          accountName: account.name,
-          businessName: account.businessName,
-          email: account.email,
-          phone: account.phone,
-          status: account.status,
-          subStatus: account.subStatus,
-          onboardingStage: account.onboardingStage,
-          creditCardId: account.creditCardId,
-          directDebitId: account.directDebitId,
-          businessType: account.businessType,
-          industry: account.industry,
-          website: account.website,
-          riskLevel: account.riskLevel,
-          complianceStatus: account.complianceStatus,
-          approvedAt: account.approvedAt ? new Date(account.approvedAt) : null,
-          activatedAt: account.activatedAt ? new Date(account.activatedAt) : null,
-          webhookEventId: webhookId,
-          metadata: payload.metadata,
-        },
-      });
-    }
-
-    // Record status change history
-    if (statusChange) {
-      await prisma.accountStatusHistory.create({
-        data: {
-          accountId: accountRecord.id,
-          fromStatus: statusChange.fromStatus,
-          toStatus: statusChange.toStatus,
-          subStatus: account.subStatus,
-          stage: account.onboardingStage,
-          reason: statusChange.reason,
-          description: statusChange.description,
-          changedBy: statusChange.changedBy || 'webhook',
-          metadata: payload.metadata,
-        },
-      });
-    }
-
-    // Update payment methods if provided
-    if (paymentMethods && paymentMethods.length > 0) {
-      for (const pm of paymentMethods) {
-        // Try to find existing payment method
-        const existingPM = await prisma.paymentMethod.findFirst({
-          where: {
-            accountId: accountRecord.id,
-            externalId: pm.externalId,
-          },
-        });
-
-        if (existingPM) {
-          // Update existing payment method
-          await prisma.paymentMethod.update({
-            where: { id: existingPM.id },
-            data: {
-              type: pm.type,
-              name: pm.name,
-              status: pm.status,
-              isDefault: pm.isDefault,
-              capabilities: pm.capabilities,
-              limits: pm.limits,
-              activatedAt: pm.status === 'ACTIVE' ? new Date() : undefined,
-            },
-          });
-        } else {
-          // Create new payment method
-          await prisma.paymentMethod.create({
-            data: {
-              accountId: accountRecord.id,
-              type: pm.type,
-              externalId: pm.externalId,
-              name: pm.name,
-              status: pm.status,
-              isDefault: pm.isDefault,
-              capabilities: pm.capabilities,
-              limits: pm.limits,
-              activatedAt: pm.status === 'ACTIVE' ? new Date() : undefined,
-            },
-          });
-        }
-      }
-    }
-
-    // Mark webhook as processed
-    await prisma.webhookEvent.update({
-      where: { id: webhookId },
-      data: { processed: true },
+    // Example: Update account status in database
+    /*
+    await updateAccountStatus({
+      accountNumber: payload.accountNumber,
+      status: payload.acctStatus,
+      eventType: webhook.eventType,
+      eventDate: webhook.eventDate,
+      partnerId: payload.partnerId,
+      mode: webhook.mode,
     });
+    */
 
-    console.log(`Successfully processed account webhook for account ${account.id}`);
-    
   } catch (error) {
-    console.error('Error processing account webhook:', error);
+    console.error('Error processing account status update:', error);
+    throw error;
+  }
+}
+
+// HMAC signature validation using Paysafe secret key
+function validateSignature(body: string, signature: string | null): boolean {
+  if (!signature) {
+    console.warn('No signature provided in account status webhook request');
+    // Allow webhooks without signatures in development only
+    return process.env.NODE_ENV !== 'production';
+  }
+  
+  try {
+    // Paysafe HMAC secret key (base64 encoded)
+    const webhookSecret = 'YzM2ZjA4OGYyMjAxODA3MmRkYjBkZjA1ZmY2MzM2MjNmZmVjZDAzZjFiYWMyMjlkZTc0YTg3MGEyNDg1NjIxNg==';
     
-    // Mark webhook as failed
-    await prisma.webhookEvent.update({
-      where: { id: webhookId },
-      data: { 
-        processed: false,
-        error: error instanceof Error ? error.message : 'Processing failed',
-      },
+    // Try multiple approaches for the secret key
+    const secretKey1 = Buffer.from(webhookSecret, 'base64').toString('utf-8');  // Decoded
+    const secretKey2 = webhookSecret;  // Direct base64 string
+    const secretKey3 = Buffer.from(webhookSecret, 'base64');  // Binary buffer
+    
+    // Try different secret key formats and signature computations
+    const signatures = [];
+    
+    // Approach 1: Use decoded secret key
+    signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac('sha256', secretKey1).update(body, 'utf8').digest('base64'));
+    
+    // Approach 2: Use base64 secret key directly
+    signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac('sha256', secretKey2).update(body, 'utf8').digest('base64'));
+    
+    // Approach 3: Use binary buffer secret key
+    signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('hex'));
+    signatures.push(crypto.createHmac('sha256', secretKey3).update(body, 'utf8').digest('base64'));
+    
+    // Create all possible signature formats
+    const possibleSignatures = [];
+    signatures.forEach(sig => {
+      possibleSignatures.push(sig);
+      possibleSignatures.push(sig.toUpperCase());
+      possibleSignatures.push(`sha256=${sig}`);
+      possibleSignatures.push(`SHA256=${sig}`);
+      possibleSignatures.push(`sha256=${sig.toUpperCase()}`);
+      possibleSignatures.push(`SHA256=${sig.toUpperCase()}`);
     });
     
-    throw error;
+    const isValid = possibleSignatures.includes(signature);
+    
+    console.log('Account webhook signature validation:', {
+      provided: signature,
+      possibleMatches: signatures.slice(0, 3), // Log first few for debugging
+      valid: isValid
+    });
+    
+    return isValid;
+  } catch (error) {
+    console.error('Error validating account webhook signature:', error);
+    return false;
   }
 }

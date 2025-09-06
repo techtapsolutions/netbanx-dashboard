@@ -30,9 +30,11 @@ export async function GET(request: NextRequest) {
     },
     {
       path: '/api/webhooks/account-status',
-      description: 'Account onboarding status webhooks',
+      description: 'Paysafe Account Status Webhooks',
       methods: ['POST', 'GET'],
-      features: ['Account updates', 'Credit card IDs', 'Direct debit IDs']
+      features: ['Account status updates', 'Account approval/rejection', 'Multiple status types'],
+      supportedStatuses: ['Approved', 'Deferred', 'Disabled', 'Enabled', 'Pending', 'Processing', 'Rejected', 'Returned', 'Submitted', 'Waiting', 'Withdrawn'],
+      supportedEventTypes: ['ACCT_APPROVED', 'ACCT_ENABLED', 'ACCT_DISABLED', 'ACCT_PENDING', 'ACCT_REJECTED', 'ACCT_DEFERRED', 'ACCT_PROCESSING', 'ACCT_RETURNED', 'ACCT_SUBMITTED', 'ACCT_WAITING', 'ACCT_WITHDRAWN']
     }
   ];
 
