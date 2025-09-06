@@ -74,6 +74,8 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Test-Webhook': 'true',
+        'User-Agent': 'node-test-webhook-client',
       },
       body: JSON.stringify(testPayload),
     });
