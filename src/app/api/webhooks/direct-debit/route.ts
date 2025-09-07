@@ -130,12 +130,11 @@ export async function POST(request: NextRequest) {
     try {
       console.log('Development DB operation');
       storedWebhookEvent = await storeWebhookEvent({
-        id: webhookEvent.id,
         eventType: webhookEvent.eventType,
         source: webhookEvent.source,
         payload: webhookEvent.payload,
-        timestamp: webhookEvent.timestamp,
-        processed: webhookEvent.processed,
+        ipAddress: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || undefined,
+        userAgent: request.headers.get('user-agent') || undefined,
       });
       console.log('Webhook event stored in database:', storedWebhookEvent.id);
     } catch (dbError) {
@@ -226,17 +225,17 @@ export async function GET(request: NextRequest) {
 // Process Direct Debit transaction
 async function processDirectDebitTransaction(webhook: DirectDebitWebhook) {
   try {
-    const { payload } = webhook;
+    const payload = webhook.payload || {};
     
     console.log('Processing Direct Debit transaction:', {
       eventType: webhook.eventType,
-      transactionId: payload?.transactionId,
-      directDebitId: payload?.directDebitId,
-      accountNumber: payload?.accountNumber,
-      amount: payload?.amount,
-      currency: payload?.currency,
-      status: payload?.status,
-      merchantRefNum: payload?.merchantRefNum,
+      transactionId: payload.transactionId,
+      directDebitId: payload.directDebitId,
+      accountNumber: payload.accountNumber,
+      amount: payload.amount,
+      currency: payload.currency,
+      status: payload.status,
+      merchantRefNum: payload.merchantRefNum,
       mode: webhook.mode,
     });
 
