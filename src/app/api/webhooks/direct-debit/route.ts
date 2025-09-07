@@ -11,18 +11,18 @@ import {
 } from '@/lib/database-serverless';
 
 interface DirectDebitWebhook {
-  id: string; // Unique request ID
-  resourceId: string; // Direct Debit transaction ID
-  mode: 'live' | 'test'; // Event mode
-  eventDate: string; // Timestamp of event
-  eventType: string; // Event type (e.g., "DD_PAYMENT_COMPLETED", "DD_PAYMENT_FAILED")
-  payload: {
-    transactionId: string;
-    directDebitId: string; // Direct Debit ID
-    accountNumber: string;
-    amount: number;
-    currency: string;
-    status: string;
+  id?: string; // Unique request ID
+  resourceId?: string; // Direct Debit transaction ID
+  mode?: 'live' | 'test'; // Event mode
+  eventDate?: string; // Timestamp of event
+  eventType?: string; // Event type (e.g., "DD_PAYMENT_COMPLETED", "DD_PAYMENT_FAILED")
+  payload?: {
+    transactionId?: string;
+    directDebitId?: string; // Direct Debit ID
+    accountNumber?: string;
+    amount?: number;
+    currency?: string;
+    status?: string;
     merchantRefNum?: string;
     customerId?: string;
     mandateId?: string;
@@ -36,6 +36,7 @@ interface DirectDebitWebhook {
     };
     [key: string]: any; // Additional fields
   };
+  [key: string]: any; // Support for different webhook formats
 }
 
 export async function POST(request: NextRequest) {
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
     let payload: DirectDebitWebhook;
     try {
       payload = JSON.parse(body);
+      console.log('Parsed Direct Debit webhook payload:', JSON.stringify(payload, null, 2));
     } catch (error) {
       console.error('Invalid JSON payload:', error);
       return NextResponse.json(
@@ -147,10 +149,10 @@ export async function POST(request: NextRequest) {
     console.log('Successfully processed Direct Debit webhook:', {
       id: webhookEvent.id,
       eventType: webhookEvent.eventType,
-      transactionId: payload.payload.transactionId,
-      directDebitId: payload.payload.directDebitId,
-      amount: payload.payload.amount,
-      status: payload.payload.status,
+      transactionId: payload.payload?.transactionId,
+      directDebitId: payload.payload?.directDebitId,
+      amount: payload.payload?.amount,
+      status: payload.payload?.status,
     });
 
     // Return success response
@@ -228,13 +230,13 @@ async function processDirectDebitTransaction(webhook: DirectDebitWebhook) {
     
     console.log('Processing Direct Debit transaction:', {
       eventType: webhook.eventType,
-      transactionId: payload.transactionId,
-      directDebitId: payload.directDebitId,
-      accountNumber: payload.accountNumber,
-      amount: payload.amount,
-      currency: payload.currency,
-      status: payload.status,
-      merchantRefNum: payload.merchantRefNum,
+      transactionId: payload?.transactionId,
+      directDebitId: payload?.directDebitId,
+      accountNumber: payload?.accountNumber,
+      amount: payload?.amount,
+      currency: payload?.currency,
+      status: payload?.status,
+      merchantRefNum: payload?.merchantRefNum,
       mode: webhook.mode,
     });
 
