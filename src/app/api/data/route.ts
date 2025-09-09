@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
                   COALESCE(AVG(amount), 0) as avg_amount,
                   COALESCE(MIN(amount), 0) as min_amount,
                   COALESCE(MAX(amount), 0) as max_amount
-                FROM "Transaction"
+                FROM "transactions"
                 ${companyId ? Prisma.sql`WHERE "companyId" = ${companyId}` : Prisma.empty}
                 GROUP BY status
                 ORDER BY transaction_count DESC
@@ -288,7 +288,7 @@ export async function GET(request: NextRequest) {
                   (error IS NOT NULL) as has_error,
                   COUNT(*) as event_count,
                   MAX(timestamp) as latest_timestamp
-                FROM "WebhookEvent"
+                FROM "webhook_events"
                 ${companyId ? Prisma.sql`WHERE "companyId" = ${companyId}` : Prisma.empty}
                 GROUP BY processed, (error IS NOT NULL)
                 ORDER BY event_count DESC
@@ -433,7 +433,7 @@ export async function GET(request: NextRequest) {
                   SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled_transactions,
                   COALESCE(SUM(amount), 0) as total_amount,
                   COALESCE(AVG(amount), 0) as avg_amount
-                FROM "Transaction" t
+                FROM "transactions" t
                 ${companyFilter}
               ),
               webhook_stats AS (
@@ -442,7 +442,7 @@ export async function GET(request: NextRequest) {
                   SUM(CASE WHEN processed = true THEN 1 ELSE 0 END) as processed_webhooks,
                   SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) as failed_webhooks,
                   MAX(CASE WHEN processed = true THEN timestamp END) as latest_webhook
-                FROM "WebhookEvent" w
+                FROM "webhook_events" w
                 ${webhookCompanyFilter}
               )
               SELECT 
