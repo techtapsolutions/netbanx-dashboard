@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" fill="#0070f3" rx="20"/>
+  <g transform="translate(48, 48)">
+    <!-- N letter for Netbanx -->
+    <path d="M 20 76 L 20 20 L 35 20 L 55 56 L 55 20 L 70 20 L 70 76 L 55 76 L 35 40 L 35 76 Z" fill="white"/>
+  </g>
+  <text x="96" y="140" font-family="Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">NETBANX</text>
+</svg>

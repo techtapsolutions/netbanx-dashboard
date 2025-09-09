@@ -25,19 +25,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Netbanx Dashboard",
   description: "Webhook monitoring and transaction analytics dashboard for Netbanx",
-  // Add viewport optimization for responsive images
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 5,
-  },
-  // Add theme color for better mobile experience
+  // Enable web app manifest for PWA capabilities
+  manifest: '/manifest.json',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#000000' },
   ],
-  // Enable web app manifest for PWA capabilities
-  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
@@ -61,12 +60,15 @@ export default function RootLayout({
           />
         ))}
         
-        {/* Preload critical CSS */}
-        <link
-          rel="preload"
-          href="/_next/static/css/app.css"
-          as="style"
-        />
+        {/* PWA meta tags */}
+        <link rel="apple-touch-icon" href="/icon-192.svg" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Netbanx" />
+        <meta name="application-name" content="Netbanx Dashboard" />
+        <meta name="format-detection" content="telephone=no" />
         
         {/* Enable resource hints */}
         <meta httpEquiv="x-dns-prefetch-control" content="on" />

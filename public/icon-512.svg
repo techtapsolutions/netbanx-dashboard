@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0070f3" rx="50"/>
+  <g transform="translate(128, 128)">
+    <!-- N letter for Netbanx -->
+    <path d="M 50 200 L 50 50 L 90 50 L 150 150 L 150 50 L 190 50 L 190 200 L 150 200 L 90 100 L 90 200 Z" fill="white"/>
+  </g>
+  <text x="256" y="380" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="white" text-anchor="middle">NETBANX</text>
+  <text x="256" y="420" font-family="Arial, sans-serif" font-size="20" fill="white" opacity="0.9" text-anchor="middle">Dashboard</text>
+</svg>

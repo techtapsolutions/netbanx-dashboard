@@ -163,7 +163,7 @@ function applySecurityHeaders(response: NextResponse) {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: https: blob:",
-    "connect-src 'self' https://api.paysafe.com https://api.netbanx.com wss://",
+    "connect-src 'self' https://api.paysafe.com https://api.netbanx.com wss://api.paysafe.com wss://api.netbanx.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

@@ -137,7 +137,7 @@ export function Charts({ transactions }: ChartsProps) {
                 <YAxis yAxisId="left" />
                 <YAxis yAxisId="right" orientation="right" />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar yAxisId="left" dataKey="count" fill="#10B981" name="Transaction Count" />
+                <Line yAxisId="left" type="monotone" dataKey="count" stroke="#10B981" strokeWidth={2} name="Transaction Count" />
                 <Line yAxisId="right" type="monotone" dataKey="amount" stroke="#F59E0B" strokeWidth={2} name="Amount" />
               </LineChart>
             </ResponsiveContainer>

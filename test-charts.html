@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Chart Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin: 5px 0;
+            font-weight: 500;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Netbanx Dashboard - Chart Component Test</h1>
+        <p>This page tests the dashboard functionality after the chart fixes.</p>
+        
+        <div class="test-section">
+            <h2>Fixed Issues:</h2>
+            <div class="status success">✅ Fixed Bar component inside LineChart (Charts.tsx line 141)</div>
+            <div class="status success">✅ Fixed Bar component inside LineChart (OptimizedCharts.tsx line 156)</div>
+            <div class="status success">✅ Added error handling for dynamic chart imports</div>
+            <div class="status success">✅ Removed incorrect CSS preload path</div>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Actions:</h2>
+            <button onclick="testLogin()">Test Login Flow</button>
+            <button onclick="testDashboard()">Test Dashboard Load</button>
+            <button onclick="checkConsole()">Check Console Errors</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Root Cause Analysis:</h2>
+            <pre>
+Problem: Cannot read properties of undefined (reading 'call')
+Location: charts-207d77d7.3e713732e20a7be7.js
+
+Root Cause: 
+The LineChart component was incorrectly using a Bar component.
+LineChart only supports Line components, not Bar components.
+
+Solution Applied:
+Changed from:
+&lt;LineChart&gt;
+  &lt;Bar yAxisId="left" dataKey="count" /&gt;  ❌ WRONG
+  &lt;Line yAxisId="right" dataKey="amount" /&gt;
+&lt;/LineChart&gt;
+
+To:
+&lt;LineChart&gt;
+  &lt;Line yAxisId="left" dataKey="count" /&gt;  ✅ CORRECT
+  &lt;Line yAxisId="right" dataKey="amount" /&gt;
+&lt;/LineChart&gt;
+            </pre>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Results:</h2>
+            <div id="test-results">
+                <div class="status info">Waiting for tests...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const baseUrl = 'http://localhost:3001';
+        const resultsDiv = document.getElementById('test-results');
+
+        async function testLogin() {
+            resultsDiv.innerHTML = '<div class="status info">Testing login flow...</div>';
+            try {
+                const response = await fetch(`${baseUrl}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'admin@example.com',
+                        password: 'admin123'
+                    })
+                });
+                
+                if (response.ok) {
+                    resultsDiv.innerHTML = '<div class="status success">✅ Login API working</div>';
+                } else {
+                    resultsDiv.innerHTML = `<div class="status error">❌ Login failed: ${response.status}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="status error">❌ Login error: ${error.message}</div>`;
+            }
+        }
+
+        async function testDashboard() {
+            resultsDiv.innerHTML = '<div class="status info">Testing dashboard load...</div>';
+            try {
+                const response = await fetch(`${baseUrl}/`);
+                const html = await response.text();
+                
+                // Check for error indicators
+                const hasError = html.includes('error') || html.includes('Error');
+                const hasCharts = html.includes('charts') || html.includes('recharts');
+                
+                if (response.ok && !hasError && hasCharts) {
+                    resultsDiv.innerHTML = '<div class="status success">✅ Dashboard loaded successfully</div>';
+                } else if (hasError) {
+                    resultsDiv.innerHTML = '<div class="status warning">⚠️ Dashboard loaded with potential errors</div>';
+                } else {
+                    resultsDiv.innerHTML = `<div class="status error">❌ Dashboard load issue: ${response.status}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="status error">❌ Dashboard error: ${error.message}</div>`;
+            }
+        }
+
+        function checkConsole() {
+            resultsDiv.innerHTML = `
+                <div class="status info">📋 To check for console errors:</div>
+                <ol>
+                    <li>Open browser DevTools (F12)</li>
+                    <li>Go to Console tab</li>
+                    <li>Navigate to <a href="${baseUrl}" target="_blank">${baseUrl}</a></li>
+                    <li>Login with credentials</li>
+                    <li>Check for any red error messages</li>
+                </ol>
+                <div class="status warning">Expected: No "Cannot read properties of undefined" errors</div>
+            `;
+        }
+
+        // Auto-check server availability
+        fetch(`${baseUrl}/api/health`)
+            .then(response => {
+                if (response.ok) {
+                    resultsDiv.innerHTML += '<div class="status success">✅ Server is running on port 3001</div>';
+                }
+            })
+            .catch(() => {
+                resultsDiv.innerHTML = '<div class="status error">❌ Server not responding on port 3001. Please ensure npm run dev is running.</div>';
+            });
+    </script>
+</body>
+</html>

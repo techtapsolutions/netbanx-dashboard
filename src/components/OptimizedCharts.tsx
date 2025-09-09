@@ -6,64 +6,105 @@ import { formatCurrency } from '@/lib/utils';
 import { format, parseISO, startOfDay } from 'date-fns';
 import dynamic from 'next/dynamic';
 
-// Dynamically import heavy chart components with no SSR
+// Loading component for charts
+const ChartLoadingFallback = () => (
+  <div className="h-full w-full animate-pulse bg-gray-100 rounded" />
+);
+
+// Dynamically import heavy chart components with no SSR and error handling
 const ResponsiveContainer = dynamic(
-  () => import('recharts').then(mod => mod.ResponsiveContainer),
-  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-gray-100" /> }
+  () => import('recharts').then(mod => mod.ResponsiveContainer).catch(err => {
+    console.error('Failed to load ResponsiveContainer:', err);
+    return { default: () => <ChartLoadingFallback /> };
+  }),
+  { ssr: false, loading: () => <ChartLoadingFallback /> }
 );
 
 const PieChart = dynamic(
-  () => import('recharts').then(mod => mod.PieChart),
-  { ssr: false }
+  () => import('recharts').then(mod => mod.PieChart).catch(err => {
+    console.error('Failed to load PieChart:', err);
+    return { default: () => <ChartLoadingFallback /> };
+  }),
+  { ssr: false, loading: () => <ChartLoadingFallback /> }
 );
 
 const Pie = dynamic(
-  () => import('recharts').then(mod => mod.Pie),
+  () => import('recharts').then(mod => mod.Pie).catch(err => {
+    console.error('Failed to load Pie:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const Cell = dynamic(
-  () => import('recharts').then(mod => mod.Cell),
+  () => import('recharts').then(mod => mod.Cell).catch(err => {
+    console.error('Failed to load Cell:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const BarChart = dynamic(
-  () => import('recharts').then(mod => mod.BarChart),
-  { ssr: false }
+  () => import('recharts').then(mod => mod.BarChart).catch(err => {
+    console.error('Failed to load BarChart:', err);
+    return { default: () => <ChartLoadingFallback /> };
+  }),
+  { ssr: false, loading: () => <ChartLoadingFallback /> }
 );
 
 const Bar = dynamic(
-  () => import('recharts').then(mod => mod.Bar),
+  () => import('recharts').then(mod => mod.Bar).catch(err => {
+    console.error('Failed to load Bar:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const LineChart = dynamic(
-  () => import('recharts').then(mod => mod.LineChart),
-  { ssr: false }
+  () => import('recharts').then(mod => mod.LineChart).catch(err => {
+    console.error('Failed to load LineChart:', err);
+    return { default: () => <ChartLoadingFallback /> };
+  }),
+  { ssr: false, loading: () => <ChartLoadingFallback /> }
 );
 
 const Line = dynamic(
-  () => import('recharts').then(mod => mod.Line),
+  () => import('recharts').then(mod => mod.Line).catch(err => {
+    console.error('Failed to load Line:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const XAxis = dynamic(
-  () => import('recharts').then(mod => mod.XAxis),
+  () => import('recharts').then(mod => mod.XAxis).catch(err => {
+    console.error('Failed to load XAxis:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const YAxis = dynamic(
-  () => import('recharts').then(mod => mod.YAxis),
+  () => import('recharts').then(mod => mod.YAxis).catch(err => {
+    console.error('Failed to load YAxis:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const CartesianGrid = dynamic(
-  () => import('recharts').then(mod => mod.CartesianGrid),
+  () => import('recharts').then(mod => mod.CartesianGrid).catch(err => {
+    console.error('Failed to load CartesianGrid:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
 const Tooltip = dynamic(
-  () => import('recharts').then(mod => mod.Tooltip),
+  () => import('recharts').then(mod => mod.Tooltip).catch(err => {
+    console.error('Failed to load Tooltip:', err);
+    return { default: () => null };
+  }),
   { ssr: false }
 );
 
@@ -153,7 +194,7 @@ const DailyVolumeChart = memo(({ dailyTransactions }: { dailyTransactions: any[]
             <YAxis yAxisId="left" />
             <YAxis yAxisId="right" orientation="right" />
             <Tooltip content={<CustomTooltip />} />
-            <Bar yAxisId="left" dataKey="count" fill="#10B981" name="Transaction Count" />
+            <Line yAxisId="left" type="monotone" dataKey="count" stroke="#10B981" strokeWidth={2} name="Transaction Count" />
             <Line yAxisId="right" type="monotone" dataKey="amount" stroke="#F59E0B" strokeWidth={2} name="Amount" />
           </LineChart>
         </ResponsiveContainer>
