@@ -5,7 +5,31 @@ import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    // Add detailed logging for JSON parsing issues
+    console.log('🔍 Login request received');
+    console.log('Content-Type:', request.headers.get('content-type'));
+    
+    let body;
+    try {
+      body = await request.json();
+      console.log('✅ JSON parsed successfully');
+    } catch (parseError) {
+      console.error('❌ JSON parsing failed:', parseError);
+      // Try to read the raw text to see what we're dealing with
+      try {
+        const rawText = await request.text();
+        console.log('Raw request body:', rawText.substring(0, 200) + '...');
+      } catch (textError) {
+        console.error('Could not read raw text:', textError);
+      }
+      
+      return NextResponse.json(
+        { error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
+    
+    const { email, password } = body;
 
     if (!email || !password) {
       return NextResponse.json(
