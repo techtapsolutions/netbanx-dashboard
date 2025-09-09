@@ -1,10 +1,18 @@
 import type { NextConfig } from "next";
 import { CDN_CONFIG, getCacheControlHeader } from "./src/lib/cdn-config";
 
-// Bundle analyzer configuration
-const withBundleAnalyzer = require('@next/bundle-analyzer')({
-  enabled: process.env.ANALYZE === 'true',
-});
+// Bundle analyzer configuration - only load if needed and available
+let withBundleAnalyzer: any = (config: NextConfig) => config;
+try {
+  if (process.env.ANALYZE === 'true') {
+    withBundleAnalyzer = require('@next/bundle-analyzer')({
+      enabled: true,
+    });
+  }
+} catch (error) {
+  // Bundle analyzer not available, use identity function
+  console.log('Bundle analyzer not available, skipping...');
+}
 
 const nextConfig: NextConfig = {
   // Production optimizations
