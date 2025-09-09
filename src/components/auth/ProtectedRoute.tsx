@@ -11,9 +11,17 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, requireRole }: ProtectedRouteProps) {
   const { user, loading, isAuthenticated } = useAuth();
+  
+  console.log('🛡️ ProtectedRoute render:', { 
+    loading, 
+    isAuthenticated, 
+    userEmail: user?.email || 'none',
+    hasUser: !!user
+  });
 
   // Show loading spinner while checking authentication
   if (loading) {
+    console.log('🔄 ProtectedRoute: Showing loading spinner');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -26,11 +34,15 @@ export function ProtectedRoute({ children, requireRole }: ProtectedRouteProps) {
 
   // Show login form if not authenticated
   if (!isAuthenticated) {
+    console.log('🔐 ProtectedRoute: Showing login form');
     return <LoginForm />;
   }
 
+  console.log('✅ ProtectedRoute: User authenticated, showing protected content');
+
   // Check role-based access if roles are specified
   if (requireRole && user && !requireRole.includes(user.role)) {
+    console.log('🚫 ProtectedRoute: Role access denied');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md mx-auto text-center p-8 bg-white rounded-lg shadow-lg">
@@ -52,5 +64,6 @@ export function ProtectedRoute({ children, requireRole }: ProtectedRouteProps) {
   }
 
   // Render protected content
+  console.log('🎯 ProtectedRoute: Rendering children (dashboard)');
   return <>{children}</>;
 }
