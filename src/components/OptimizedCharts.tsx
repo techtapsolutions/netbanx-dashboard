@@ -13,9 +13,15 @@ const ChartLoadingFallback = () => (
 
 // Dynamically import heavy chart components with no SSR and error handling
 const ResponsiveContainer = dynamic(
-  () => import('recharts').then(mod => mod.ResponsiveContainer).catch(err => {
+  () => import('recharts').then(mod => {
+    if (!mod.ResponsiveContainer) {
+      console.error('ResponsiveContainer not found in recharts module');
+      return () => <ChartLoadingFallback />;
+    }
+    return mod.ResponsiveContainer;
+  }).catch(err => {
     console.error('Failed to load ResponsiveContainer:', err);
-    return { default: () => <ChartLoadingFallback /> };
+    return () => <ChartLoadingFallback />;
   }),
   { ssr: false, loading: () => <ChartLoadingFallback /> }
 );
@@ -100,9 +106,17 @@ const CartesianGrid = dynamic(
   { ssr: false }
 );
 
-const Tooltip = dynamic(
+const RechartsTooltip = dynamic(
   () => import('recharts').then(mod => mod.Tooltip).catch(err => {
     console.error('Failed to load Tooltip:', err);
+    return { default: () => null };
+  }),
+  { ssr: false }
+);
+
+const Legend = dynamic(
+  () => import('recharts').then(mod => mod.Legend).catch(err => {
+    console.error('Failed to load Legend:', err);
     return { default: () => null };
   }),
   { ssr: false }
@@ -152,7 +166,7 @@ const StatusChart = memo(({ statusData }: { statusData: any[] }) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
             ))}
           </Pie>
-          <Tooltip />
+          <RechartsTooltip />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -170,7 +184,7 @@ const PaymentMethodChart = memo(({ paymentMethodData }: { paymentMethodData: any
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" />
           <YAxis />
-          <Tooltip content={<CustomTooltip />} />
+          <RechartsTooltip content={<CustomTooltip />} />
           <Bar dataKey="value" fill="#3B82F6" />
         </BarChart>
       </ResponsiveContainer>
@@ -193,7 +207,7 @@ const DailyVolumeChart = memo(({ dailyTransactions }: { dailyTransactions: any[]
             <XAxis dataKey="day" />
             <YAxis yAxisId="left" />
             <YAxis yAxisId="right" orientation="right" />
-            <Tooltip content={<CustomTooltip />} />
+            <RechartsTooltip content={<CustomTooltip />} />
             <Line yAxisId="left" type="monotone" dataKey="count" stroke="#10B981" strokeWidth={2} name="Transaction Count" />
             <Line yAxisId="right" type="monotone" dataKey="amount" stroke="#F59E0B" strokeWidth={2} name="Amount" />
           </LineChart>
