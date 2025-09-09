@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DatabaseService } from '@/lib/database';
+import { withCache, CACHE_CONFIGS } from '@/lib/api-cache';
+import { AnalyticsCacheManager } from '@/lib/analytics-cache';
 
 /**
  * @swagger
@@ -53,7 +55,13 @@ import { DatabaseService } from '@/lib/database';
  *                         failed:
  *                           type: integer
  */
-export async function GET(request: NextRequest) {
+// Cached analytics endpoint with smart invalidation
+const analyticsHandler = withCache({
+  ...CACHE_CONFIGS.ANALYTICS,
+  // Add company-specific caching
+  varyBy: ['authorization', 'timeRange'],
+  tags: ['analytics', 'transactions', 'webhooks'],
+})(async function GET(request: NextRequest) {
   try {
     const { user, company, error } = await authenticateApiRequest(request);
     if (error) {
@@ -63,7 +71,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const timeRange = (searchParams.get('timeRange') || 'day') as 'hour' | 'day' | 'week' | 'month';
 
-    const analytics = await DatabaseService.getAnalytics(timeRange);
+    // Get cached analytics with smart pre-computation
+    const analytics = await AnalyticsCacheManager.getAnalytics(timeRange, company?.id);
 
     // Filter data by company if not super admin
     if (company && user.role !== 'SUPER_ADMIN') {
@@ -74,6 +83,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: analytics,
+      cached: true, // Indicates this endpoint supports caching
+      timestamp: new Date().toISOString(),
     });
 
   } catch (error) {
@@ -83,7 +94,9 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
+
+export { analyticsHandler as GET };
 
 async function authenticateApiRequest(request: NextRequest) {
   // This is a simplified version - in production, implement full auth logic

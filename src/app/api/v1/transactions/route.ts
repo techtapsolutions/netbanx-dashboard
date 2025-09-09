@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DatabaseService } from '@/lib/database';
 import { AuthService } from '@/lib/auth';
+import { withCache, CACHE_CONFIGS } from '@/lib/api-cache';
 
 /**
  * @swagger
@@ -73,7 +74,11 @@ import { AuthService } from '@/lib/auth';
  *       403:
  *         description: Forbidden
  */
-export async function GET(request: NextRequest) {
+// Cached transactions endpoint
+const transactionsHandler = withCache({
+  ...CACHE_CONFIGS.TRANSACTIONS,
+  varyBy: ['authorization', 'page', 'limit', 'status', 'currency', 'startDate', 'endDate'],
+})(async function GET(request: NextRequest) {
   try {
     // Authenticate API request
     const authResult = await authenticateApiRequest(request);
@@ -118,6 +123,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: result,
+      cached: true,
+      timestamp: new Date().toISOString(),
     });
 
   } catch (error) {
@@ -128,7 +135,9 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
+
+export { transactionsHandler as GET };
 
 
 // API Authentication helper

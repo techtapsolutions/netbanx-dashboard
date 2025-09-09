@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { webhookStorePersistent } from '@/lib/webhook-store-persistent';
 import { WebhookEvent } from '@/types/webhook';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
-import { getWebhookSecret } from '@/lib/webhook-secret-store';
+import { WebhookQueueManager, webhookDeduplicator } from '@/lib/webhook-queue';
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  
   try {
     // Get the raw body for signature verification
     const body = await request.text();
@@ -20,18 +21,7 @@ export async function POST(request: NextRequest) {
                      request.headers.get('x-netbanx-event-type') ||
                      request.headers.get('x-event-type');
     
-    // Log incoming webhook for debugging
-    console.log('Received Netbanx webhook:', {
-      url: request.url,
-      method: request.method,
-      eventType,
-      signature: signature ? 'present' : 'missing',
-      bodyLength: body.length,
-      timestamp,
-      headers: Object.fromEntries(request.headers.entries()),
-    });
-
-    // Parse the JSON payload
+    // Parse the JSON payload early for webhook ID extraction
     let payload;
     try {
       payload = JSON.parse(body);
@@ -43,25 +33,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate webhook signature if present (in production you'd verify against a secret)
-    const isSignatureValid = await validateSignature(body, signature);
-    
-    if (!isSignatureValid && process.env.NODE_ENV === 'production') {
-      console.error('Invalid webhook signature');
-      return NextResponse.json(
-        { error: 'Invalid signature' },
-        { status: 401 }
-      );
-    }
-
     // Create webhook event with additional metadata
     const webhookEvent: WebhookEvent = {
-      id: uuidv4(),
+      id: payload.id || payload.eventData?.id || uuidv4(),
       timestamp,
       eventType: eventType || payload.eventType || 'UNKNOWN',
       source: 'netbanx',
       payload,
-      processed: true,
+      processed: false, // Will be set to true during async processing
       signature,
       ipAddress: request.ip || 
                  request.headers.get('x-forwarded-for') || 
@@ -70,48 +49,60 @@ export async function POST(request: NextRequest) {
       userAgent: request.headers.get('user-agent') || undefined,
     };
 
-    // Store the webhook event (non-blocking for performance)
-    webhookStorePersistent.addWebhookEvent(webhookEvent);
+    // Quick deduplication check (fast Redis lookup)
+    const isDuplicate = await webhookDeduplicator.isDuplicate(webhookEvent.id, signature);
+    if (isDuplicate) {
+      console.log(`Rejected duplicate webhook: ${webhookEvent.id}`);
+      return NextResponse.json(
+        { 
+          success: true, 
+          message: 'Webhook already processed (duplicate)',
+          webhookId: webhookEvent.id,
+          duplicate: true
+        },
+        { status: 200 }
+      );
+    }
 
-    console.log('Successfully processed webhook:', {
+    // Add to async processing queue (non-blocking)
+    const jobId = await WebhookQueueManager.addWebhookJob(
+      webhookEvent,
+      body,
+      signature,
+      Object.fromEntries(request.headers.entries())
+    );
+
+    const processingTime = Date.now() - startTime;
+
+    console.log('Webhook accepted for processing:', {
       id: webhookEvent.id,
       eventType: webhookEvent.eventType,
+      jobId,
+      processingTime,
       paymentId: payload.eventData?.id,
     });
 
-    // Return success response
+    // Return immediate success response (async processing)
     return NextResponse.json(
       { 
         success: true, 
-        message: 'Webhook processed successfully',
-        webhookId: webhookEvent.id 
+        message: 'Webhook accepted for processing',
+        webhookId: webhookEvent.id,
+        jobId,
+        processingTime
       },
       { status: 200 }
     );
 
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    
-    // Log failed webhook event
-    const failedEvent: WebhookEvent = {
-      id: uuidv4(),
-      timestamp: new Date().toISOString(),
-      eventType: 'WEBHOOK_ERROR',
-      source: 'netbanx',
-      payload: { id: 'error', eventType: 'ERROR', eventData: { id: 'error', merchantRefNum: 'error' } },
-      processed: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      ipAddress: request.ip || 
-                 request.headers.get('x-forwarded-for') || 
-                 request.headers.get('x-real-ip') || 
-                 'unknown',
-      userAgent: request.headers.get('user-agent') || undefined,
-    };
-    
-    webhookStorePersistent.addWebhookEvent(failedEvent);
+    const processingTime = Date.now() - startTime;
+    console.error('Error accepting webhook:', error);
     
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Failed to accept webhook',
+        processingTime
+      },
       { status: 500 }
     );
   }
@@ -119,17 +110,18 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Health check endpoint with database stats
-    const [stats, healthStatus] = await Promise.all([
+    // Health check endpoint with database stats and queue status
+    const [stats, queueStats] = await Promise.all([
       webhookStorePersistent.getWebhookStats(),
-      webhookStorePersistent.getHealthStatus(),
+      WebhookQueueManager.getQueueStats(),
     ]);
     
     return NextResponse.json({
       status: 'active',
       endpoint: '/api/webhooks/netbanx',
+      processing: 'async',
       stats,
-      health: healthStatus,
+      queue: queueStats,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -144,80 +136,5 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// HMAC signature validation using stored encrypted secret key
-async function validateSignature(body: string, signature: string | null): Promise<boolean> {
-  if (!signature) {
-    console.warn('No signature provided in webhook request');
-    // Allow webhooks without signatures in development only
-    return process.env.NODE_ENV !== 'production';
-  }
-  
-  try {
-    // Get the stored secret for netbanx endpoint
-    const secretData = await getWebhookSecret('netbanx');
-    
-    if (!secretData) {
-      console.warn('No stored secret found for netbanx endpoint, falling back to hardcoded key');
-      
-      // Fallback to hardcoded key for backward compatibility
-      const fallbackSecret = 'YzM2ZjA4OGYyMjAxODA3MmRkYjBkZjA1ZmY2MzM2MjNmZmVjZDAzZjFiYWMyMjlkZTc0YTg3MGEyNDg1NjIxNg==';
-      return validateWithKey(body, signature, fallbackSecret);
-    }
-    
-    // Use the stored key
-    return validateWithKey(body, signature, secretData.key, secretData.algorithm);
-  } catch (error) {
-    console.error('Error validating webhook signature:', error);
-    return false;
-  }
-}
-
-// Helper function to validate with a specific key
-function validateWithKey(body: string, signature: string, secretKey: string, algorithm: string = 'sha256'): boolean {
-  try {
-    // Try multiple approaches for the secret key
-    const secretKey1 = Buffer.from(secretKey, 'base64').toString('utf-8');  // Decoded
-    const secretKey2 = secretKey;  // Direct string
-    const secretKey3 = Buffer.from(secretKey, 'base64');  // Binary buffer
-    
-    // Try different secret key formats and signature computations
-    const signatures = [];
-    
-    // Approach 1: Use decoded secret key
-    signatures.push(crypto.createHmac(algorithm, secretKey1).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac(algorithm, secretKey1).update(body, 'utf8').digest('base64'));
-    
-    // Approach 2: Use base64 secret key directly
-    signatures.push(crypto.createHmac(algorithm, secretKey2).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac(algorithm, secretKey2).update(body, 'utf8').digest('base64'));
-    
-    // Approach 3: Use binary buffer secret key
-    signatures.push(crypto.createHmac(algorithm, secretKey3).update(body, 'utf8').digest('hex'));
-    signatures.push(crypto.createHmac(algorithm, secretKey3).update(body, 'utf8').digest('base64'));
-    
-    // Create all possible signature formats
-    const possibleSignatures = [];
-    signatures.forEach(sig => {
-      possibleSignatures.push(sig);
-      possibleSignatures.push(sig.toUpperCase());
-      possibleSignatures.push(`${algorithm}=${sig}`);
-      possibleSignatures.push(`${algorithm.toUpperCase()}=${sig}`);
-      possibleSignatures.push(`${algorithm}=${sig.toUpperCase()}`);
-      possibleSignatures.push(`${algorithm.toUpperCase()}=${sig.toUpperCase()}`);
-    });
-    
-    const isValid = possibleSignatures.includes(signature);
-    
-    console.log('Webhook signature validation:', {
-      provided: signature,
-      algorithm,
-      possibleMatches: signatures.slice(0, 3), // Log first few for debugging
-      valid: isValid
-    });
-    
-    return isValid;
-  } catch (error) {
-    console.error('Error validating with key:', error);
-    return false;
-  }
-}
+// Note: Signature validation is now handled asynchronously in the webhook queue processor
+// This provides better performance and eliminates the expensive multiple-attempt validation

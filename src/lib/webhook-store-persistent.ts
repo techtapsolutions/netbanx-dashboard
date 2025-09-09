@@ -77,23 +77,35 @@ class PersistentWebhookStore {
   }
 
   /**
-   * Get webhook events with database persistence and caching
+   * Optimized webhook events retrieval with eager loading and caching
    */
-  async getWebhookEvents(limit: number = 100): Promise<WebhookEvent[]> {
+  async getWebhookEvents(limit: number = 100, companyId?: string): Promise<WebhookEvent[]> {
     try {
       // Try cache first for better performance
-      const cacheKey = `webhook_events:${limit}`;
+      const cacheKey = `webhook_events:${limit}:${companyId || 'all'}`;
       const cached = await redis.get(cacheKey);
       
       if (cached) {
         return JSON.parse(cached);
       }
 
-      // Fallback to database
+      // Optimized database query with proper filtering and indexing
       const events = await withDatabase(async (db) => {
         return await db.webhookEvent.findMany({
+          where: companyId ? { companyId } : undefined,
           orderBy: { timestamp: 'desc' },
           take: limit,
+          // Only select fields we need to reduce data transfer
+          select: {
+            id: true,
+            timestamp: true,
+            eventType: true,
+            source: true,
+            payload: true,
+            processed: true,
+            error: true,
+            companyId: true,
+          }
         });
       });
 
@@ -108,8 +120,8 @@ class PersistentWebhookStore {
         error: event.error || undefined,
       }));
 
-      // Cache the results
-      await redis.setex(cacheKey, 300, JSON.stringify(transformedEvents));
+      // Cache the results with shorter TTL for recent data
+      await redis.setex(cacheKey, 180, JSON.stringify(transformedEvents));
       
       return transformedEvents;
     } catch (error) {
@@ -121,13 +133,15 @@ class PersistentWebhookStore {
   }
 
   /**
-   * Get transactions with database persistence and caching
+   * Optimized transactions retrieval with eager loading and caching
    */
-  async getTransactions(): Promise<Transaction[]> {
+  async getTransactions(limit: number = 1000, companyId?: string): Promise<Transaction[]> {
     try {
-      const result = await DatabaseService.getTransactionsPaginated(1, 1000);
+      // Use optimized pagination with company filtering
+      const filters = companyId ? { companyId } : undefined;
+      const result = await DatabaseService.getTransactionsPaginated(1, limit, filters);
       
-      // Transform database format to expected format
+      // Transform database format to expected format (already optimized in DatabaseService)
       return result.transactions.map(t => ({
         id: t.externalId,
         merchantRefNum: t.merchantRefNum,

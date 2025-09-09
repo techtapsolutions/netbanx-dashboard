@@ -1,9 +1,26 @@
 import type { NextConfig } from "next";
 
+// Bundle analyzer configuration
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
+
 const nextConfig: NextConfig = {
   // Production optimizations
   output: 'standalone',
   
+  // Performance optimizations
+  experimental: {
+    optimizeCss: true,
+    optimizePackageImports: ['lucide-react', '@headlessui/react', 'recharts'],
+  },
+
+  // Image optimization
+  images: {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 60 * 60 * 24 * 365, // 1 year
+  },
+
   // Disable ESLint during CI builds for faster deployments
   eslint: {
     // Only run ESLint on the 'pages' and 'utils' directories during the build
@@ -20,6 +37,9 @@ const nextConfig: NextConfig = {
   
   // External packages configuration
   serverExternalPackages: ['@prisma/client'],
+
+  // Enable SWC minification for better performance
+  swcMinify: true,
   
   // Security headers
   async headers() {
@@ -48,19 +68,94 @@ const nextConfig: NextConfig = {
     ];
   },
   
-  // Webpack optimizations
+  // Advanced webpack optimizations
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
     // Optimize production builds
     if (!dev && !isServer) {
-      config.optimization.splitChunks.chunks = 'all';
-      config.optimization.splitChunks.cacheGroups = {
-        ...config.optimization.splitChunks.cacheGroups,
-        vendor: {
-          test: /[\\/]node_modules[\\/]/,
+      // Advanced chunk splitting strategy
+      config.optimization = {
+        ...config.optimization,
+        runtimeChunk: 'single',
+        moduleIds: 'deterministic',
+        splitChunks: {
           chunks: 'all',
-          priority: 1,
+          maxInitialRequests: 25,
+          minSize: 20000,
+          maxSize: 244000,
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Framework chunks
+            framework: {
+              name: 'framework',
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-sync-external-store)[\\/]/,
+              priority: 40,
+              chunks: 'all',
+              enforce: true,
+            },
+            // Library chunks
+            lib: {
+              test(module: any) {
+                return module.size() > 160000 &&
+                  /node_modules[\\/]/.test(module.identifier());
+              },
+              name(module: any) {
+                const hash = require('crypto').createHash('sha1');
+                hash.update(module.identifier());
+                return `lib-${hash.digest('hex').substring(0, 8)}`;
+              },
+              priority: 30,
+              minChunks: 1,
+              reuseExistingChunk: true,
+            },
+            // Chart library chunk
+            charts: {
+              name: 'charts',
+              test: /[\\/]node_modules[\\/](recharts|d3-.*|victory.*)[\\/]/,
+              priority: 35,
+              chunks: 'all',
+              enforce: true,
+            },
+            // UI components chunk
+            ui: {
+              name: 'ui',
+              test: /[\\/]node_modules[\\/](@headlessui|lucide-react|clsx|tailwind-merge)[\\/]/,
+              priority: 33,
+              chunks: 'all',
+            },
+            // Commons chunk
+            commons: {
+              name: 'commons',
+              minChunks: 2,
+              priority: 20,
+              reuseExistingChunk: true,
+            },
+            // Shared modules
+            shared: {
+              name(module: any, chunks: any) {
+                const hash = require('crypto')
+                  .createHash('sha1')
+                  .update(chunks.reduce((acc: string, chunk: any) => acc + chunk.name, ''))
+                  .digest('hex');
+                return `shared-${hash.substring(0, 8)}`;
+              },
+              priority: 10,
+              test: /[\\/]node_modules[\\/]/,
+              minChunks: 2,
+              reuseExistingChunk: true,
+            },
+          },
         },
       };
+
+      // Enable tree shaking for ES6 modules
+      config.optimization.usedExports = true;
+      config.optimization.sideEffects = false;
+
+      // Add webpack plugins for better optimization
+      config.plugins.push(
+        new webpack.optimize.ModuleConcatenationPlugin()
+      );
     }
     
     return config;
@@ -70,4 +165,4 @@ const nextConfig: NextConfig = {
   compress: true,
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

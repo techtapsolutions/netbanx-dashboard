@@ -28,12 +28,16 @@ model WebhookEvent {
   companyId   String?
   company     Company? @relation(fields: [companyId], references: [id])
   
-  // Indexes for performance
-  @@index([timestamp])
-  @@index([eventType])
-  @@index([processed])
-  @@index([source])
-  @@index([companyId])
+  // Optimized composite indexes for high-frequency query patterns
+  @@index([timestamp, eventType, processed], name: "idx_webhook_events_time_type_processed")
+  @@index([companyId, timestamp], name: "idx_webhook_events_company_time")
+  @@index([processed, timestamp], name: "idx_webhook_events_processed_time")
+  @@index([eventType, timestamp], name: "idx_webhook_events_type_time")
+  
+  // Single-column indexes for specific use cases
+  @@index([timestamp], name: "idx_webhook_events_timestamp")
+  @@index([source], name: "idx_webhook_events_source")
+  @@index([companyId], name: "idx_webhook_events_company")
   @@map("webhook_events")
 }
 
@@ -61,15 +65,18 @@ model Transaction {
   companyId         String?
   company           Company? @relation(fields: [companyId], references: [id])
   
-  // Indexes for performance and analytics
-  @@index([status])
-  @@index([transactionType])
-  @@index([paymentMethod])
-  @@index([currency])
-  @@index([createdAt])
-  @@index([transactionTime])
-  @@index([merchantRefNum])
-  @@index([companyId])
+  // Optimized composite indexes for transaction queries
+  @@index([status, transactionTime, companyId], name: "idx_transactions_status_time_company")
+  @@index([companyId, transactionTime], name: "idx_transactions_company_time")
+  @@index([transactionTime, status], name: "idx_transactions_time_status")
+  @@index([status, paymentMethod, currency], name: "idx_transactions_status_method_currency")
+  @@index([merchantRefNum, companyId], name: "idx_transactions_merchant_company")
+  
+  // Single-column indexes for specific lookups
+  @@index([status], name: "idx_transactions_status")
+  @@index([transactionType], name: "idx_transactions_type")
+  @@index([merchantRefNum], name: "idx_transactions_merchant_ref")
+  @@index([companyId], name: "idx_transactions_company")
   @@map("transactions")
 }
 
@@ -94,7 +101,8 @@ model SystemMetrics {
   diskUsage           Float?
   responseTime        Float?
   
-  @@index([timestamp])
+  // Optimized index for time-series analytics queries
+  @@index([timestamp], name: "idx_system_metrics_timestamp")
   @@map("system_metrics")
 }
 
@@ -111,9 +119,13 @@ model Alert {
   source      String?
   metadata    Json?
   
-  @@index([timestamp])
-  @@index([type])
-  @@index([resolved])
+  // Optimized composite indexes for alert management
+  @@index([resolved, timestamp], name: "idx_alerts_resolved_timestamp")
+  @@index([type, timestamp], name: "idx_alerts_type_timestamp")
+  
+  // Single-column indexes for filtering
+  @@index([timestamp], name: "idx_alerts_timestamp")
+  @@index([type], name: "idx_alerts_type")
   @@map("alerts")
 }
 
@@ -192,9 +204,13 @@ model Session {
   
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  @@index([token])
-  @@index([userId])
-  @@index([expiresAt])
+  // Optimized composite indexes for session management
+  @@index([userId, expiresAt], name: "idx_sessions_user_expires")
+  @@index([expiresAt, userId], name: "idx_sessions_expires_user")
+  
+  // Single-column indexes for specific lookups  
+  @@index([token], name: "idx_sessions_token")
+  @@index([userId], name: "idx_sessions_user")
   @@map("sessions")
 }
 

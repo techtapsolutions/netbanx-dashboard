@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "build:analyze": "ANALYZE=true next build",
     "start": "next start",
     "lint": "eslint",
     "setup:admin": "npx tsx scripts/setup-admin.ts",
@@ -45,6 +46,8 @@
     "prisma": "^6.15.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-window": "^2.1.0",
+    "react-window-infinite-loader": "^1.0.10",
     "recharts": "^3.1.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-react": "^5.28.1",
@@ -55,12 +58,14 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@next/bundle-analyzer": "^15.5.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.34.0",
     "eslint-config-next": "15.5.2",
     "tsx": "^4.7.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "webpack-bundle-analyzer": "^4.10.2"
   }
 }

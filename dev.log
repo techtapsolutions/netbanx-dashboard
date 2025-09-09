@@ -66,3 +66,12 @@ Session refresh error: [Error: Connection terminated unexpectedly]
  ✓ Compiled middleware in 12ms
  ✓ Compiled middleware in 3ms
  ✓ Compiled in 37ms
+ ✓ Compiled middleware in 5ms
+Session cleanup completed: 0 expired, 0 orphaned, 0 over-limit sessions removed
+ ✓ Compiled middleware in 2ms
+ ✓ Compiled middleware in 8ms
+Session cleanup completed: 0 expired, 0 orphaned, 0 over-limit sessions removed
+ ○ Compiling /_not-found/page ...
+ ✓ Compiled /_not-found/page in 1878ms
+ GET /health 404 in 2224ms
+[?25h
