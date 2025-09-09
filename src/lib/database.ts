@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 import { DatabasePerformanceMonitor } from './database-performance-monitor';
+import { RedisConnectionManager } from './redis-config';
 
 declare global {
   var __db: PrismaClient | undefined;
@@ -357,16 +358,27 @@ export const db = (() => {
   return isServerlessEnvironment() ? createPrismaClient(true) : getDevelopmentClient();
 })();
 
-// Redis singleton for caching and queues
-export const redis = global.__redis || new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  retryDelayOnFailover: 100,
-  enableReadyCheck: false,
-  maxRetriesPerRequest: null,
-  lazyConnect: true,
-});
+// Production-ready Redis connection with Upstash support
+export const redis = RedisConnectionManager.getInstance();
+
+// Legacy export for Bull.js compatibility (requires IORedis instance)
+export const redisForBull = (() => {
+  try {
+    return RedisConnectionManager.getIORedisInstance();
+  } catch (error) {
+    console.warn('⚠️ Bull.js requires IORedis instance. Using Upstash Redis URL instead of REST API.');
+    // Fallback to standard Redis connection for Bull.js
+    return global.__redis || new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+      retryDelayOnFailover: 100,
+      enableReadyCheck: false,
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+    });
+  }
+})();
 
 if (process.env.NODE_ENV !== 'production') {
-  global.__redis = redis;
+  global.__redis = redisForBull as Redis;
 }
 
 // Database utilities for high-performance operations
@@ -443,7 +455,7 @@ export class DatabaseService {
     
     try {
       // Try cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -480,7 +492,7 @@ export class DatabaseService {
       };
       
       // Cache for 5 minutes
-      await redis.setex(cacheKey, 300, JSON.stringify(result));
+      await RedisConnectionManager.setex(cacheKey, 300, JSON.stringify(result));
       
       return result;
     } catch (error) {
@@ -494,7 +506,7 @@ export class DatabaseService {
     const cacheKey = `analytics:${timeRange}`;
     
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -570,7 +582,7 @@ export class DatabaseService {
         
         // Cache analytics based on time range
         const cacheTime = timeRange === 'hour' ? 300 : timeRange === 'day' ? 900 : 3600;
-        await redis.setex(cacheKey, cacheTime, JSON.stringify(analytics));
+        await RedisConnectionManager.setex(cacheKey, cacheTime, JSON.stringify(analytics));
         
         return analytics;
       }, { timeout: 10000, operationName: 'get_analytics' });

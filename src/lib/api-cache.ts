@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { redis } from '@/lib/database';
+import { RedisConnectionManager } from '@/lib/redis-config';
 import crypto from 'crypto';
 
 // Cache configuration interface
@@ -64,7 +65,7 @@ export class ApiCacheManager {
    */
   static async getCachedResponse(cacheKey: string): Promise<CachedResponse | null> {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       if (!cached) return null;
       
       const response: CachedResponse = JSON.parse(cached);
@@ -73,7 +74,7 @@ export class ApiCacheManager {
       const now = Date.now();
       if (now > response.timestamp + (response.ttl * 1000)) {
         // Cache expired, delete it
-        await redis.del(cacheKey);
+        await RedisConnectionManager.del(cacheKey);
         return null;
       }
       
@@ -109,7 +110,7 @@ export class ApiCacheManager {
       };
 
       // Store the cached response
-      await redis.setex(cacheKey, ttl, JSON.stringify(cachedResponse));
+      await RedisConnectionManager.setex(cacheKey, ttl, JSON.stringify(cachedResponse));
 
       // Store cache tags for invalidation
       if (config.tags) {
@@ -126,10 +127,28 @@ export class ApiCacheManager {
    */
   private static async storeCacheTags(cacheKey: string, tags: string[], ttl: number): Promise<void> {
     try {
+      // Note: sadd and expire are not available in universal adapter
+      // For Upstash REST API, we'll use a simplified approach
       for (const tag of tags) {
         const tagKey = `${this.TAGS_PREFIX}:${tag}`;
-        await redis.sadd(tagKey, cacheKey);
-        await redis.expire(tagKey, ttl + 60); // Keep tags slightly longer than cache
+        try {
+          // Try IORedis operations first
+          const redisInstance = redis as any;
+          if (redisInstance.sadd && redisInstance.expire) {
+            await redisInstance.sadd(tagKey, cacheKey);
+            await redisInstance.expire(tagKey, ttl + 60);
+          } else {
+            // Fallback: Store tag as a simple key-value pair for Upstash REST
+            const existingTags = await RedisConnectionManager.get(tagKey) || '[]';
+            const tagList = JSON.parse(existingTags);
+            if (!tagList.includes(cacheKey)) {
+              tagList.push(cacheKey);
+              await RedisConnectionManager.setex(tagKey, ttl + 60, JSON.stringify(tagList));
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to store cache tag ${tag}:`, error);
+        }
       }
     } catch (error) {
       console.warn('Failed to store cache tags:', error);
@@ -145,18 +164,32 @@ export class ApiCacheManager {
       
       for (const tag of tags) {
         const tagKey = `${this.TAGS_PREFIX}:${tag}`;
-        const cacheKeys = await redis.smembers(tagKey);
-        keysToDelete = keysToDelete.concat(cacheKeys);
-        
-        // Clean up the tag set
-        await redis.del(tagKey);
+        try {
+          const redisInstance = redis as any;
+          if (redisInstance.smembers) {
+            // Use Redis set operations if available
+            const cacheKeys = await redisInstance.smembers(tagKey);
+            keysToDelete = keysToDelete.concat(cacheKeys);
+            await redisInstance.del(tagKey);
+          } else {
+            // Fallback for Upstash REST API
+            const tagData = await RedisConnectionManager.get(tagKey);
+            if (tagData) {
+              const tagList = JSON.parse(tagData);
+              keysToDelete = keysToDelete.concat(tagList);
+              await RedisConnectionManager.del(tagKey);
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to invalidate tag ${tag}:`, error);
+        }
       }
       
       // Remove duplicates
       const uniqueKeys = [...new Set(keysToDelete)];
       
       if (uniqueKeys.length > 0) {
-        await redis.del(...uniqueKeys);
+        await RedisConnectionManager.del(...uniqueKeys);
         console.log(`Invalidated ${uniqueKeys.length} cache entries for tags:`, tags);
       }
       
@@ -172,9 +205,9 @@ export class ApiCacheManager {
    */
   static async clearCachePrefix(prefix: string = this.DEFAULT_PREFIX): Promise<number> {
     try {
-      const keys = await redis.keys(`${prefix}:*`);
+      const keys = await RedisConnectionManager.keys(`${prefix}:*`);
       if (keys.length > 0) {
-        await redis.del(...keys);
+        await RedisConnectionManager.del(...keys);
         console.log(`Cleared ${keys.length} cache entries with prefix: ${prefix}`);
       }
       return keys.length;

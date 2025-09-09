@@ -23,6 +23,7 @@
     "@types/nodemailer": "^7.0.1",
     "@types/pg": "^8.15.5",
     "@types/swagger-jsdoc": "^6.0.4",
+    "@upstash/redis": "^1.35.3",
     "autoprefixer": "^10.4.21",
     "axios": "^1.11.0",
     "bcrypt": "^5.1.1",

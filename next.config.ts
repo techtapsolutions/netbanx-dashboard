@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { CDN_CONFIG, getCacheControlHeader } from "./src/lib/cdn-config";
 
 // Bundle analyzer configuration
 const withBundleAnalyzer = require('@next/bundle-analyzer')({
@@ -13,12 +14,31 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizeCss: true,
     optimizePackageImports: ['lucide-react', '@headlessui/react', 'recharts'],
+    // Enable edge runtime for better CDN integration
+    serverMinification: true,
   },
 
-  // Image optimization
+  // Advanced Image optimization with CDN support
   images: {
-    formats: ['image/avif', 'image/webp'],
-    minimumCacheTTL: 60 * 60 * 24 * 365, // 1 year
+    formats: CDN_CONFIG.images.formats as any,
+    deviceSizes: CDN_CONFIG.images.deviceSizes,
+    imageSizes: CDN_CONFIG.images.imageSizes,
+    minimumCacheTTL: CDN_CONFIG.images.minimumCacheTTL,
+    // Enable image optimization API
+    dangerouslyAllowSVG: true,
+    contentDispositionType: 'attachment',
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+    // Remote patterns for external images
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.vercel.app',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.vercel.sh',
+      },
+    ],
   },
 
   // Disable ESLint during CI builds for faster deployments
@@ -38,9 +58,70 @@ const nextConfig: NextConfig = {
   // External packages configuration
   serverExternalPackages: ['@prisma/client'],
   
-  // Security headers
+  // Security and CDN cache headers
   async headers() {
     return [
+      // Static assets with immutable caching
+      {
+        source: '/_next/static/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: getCacheControlHeader('immutable'),
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+      // Images with optimized caching
+      {
+        source: '/images/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: getCacheControlHeader('static'),
+          },
+          {
+            key: 'Accept-CH',
+            value: 'DPR, Viewport-Width, Width',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+      // Font files with long-term caching
+      {
+        source: '/fonts/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: getCacheControlHeader('immutable'),
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+      // API routes with edge caching
+      {
+        source: '/api/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: getCacheControlHeader('api'),
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+      // Global security headers
       {
         source: '/(.*)',
         headers: [
@@ -59,6 +140,15 @@ const nextConfig: NextConfig = {
           {
             key: 'Referrer-Policy',
             value: 'origin-when-cross-origin',
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=()',
+          },
+          // Enable compression hints
+          {
+            key: 'Accept-Encoding',
+            value: 'br, gzip, deflate',
           },
         ],
       },

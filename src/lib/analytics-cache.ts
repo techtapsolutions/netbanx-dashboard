@@ -1,4 +1,5 @@
-import { DatabaseService, redis } from '@/lib/database';
+import { DatabaseService, redis, redisForBull } from '@/lib/database';
+import { RedisConnectionManager } from '@/lib/redis-config';
 import Queue from 'bull';
 
 // Analytics cache configuration
@@ -18,12 +19,7 @@ interface CachedAnalytics {
 
 // Analytics background processing queue
 const analyticsQueue = new Queue('analytics processing', {
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD,
-    db: parseInt(process.env.REDIS_DB || '0'),
-  },
+  redis: redisForBull, // Use IORedis instance for Bull.js compatibility
   defaultJobOptions: {
     removeOnComplete: 10,
     removeOnFail: 5,
@@ -134,10 +130,10 @@ export class AnalyticsCacheManager {
         ? `${this.CACHE_PREFIX}:*:company:${companyId}`
         : `${this.CACHE_PREFIX}:*`;
         
-      const keys = await redis.keys(pattern);
+      const keys = await RedisConnectionManager.keys(pattern);
       
       if (keys.length > 0) {
-        await redis.del(...keys);
+        await RedisConnectionManager.del(...keys);
         console.log(`Invalidated ${keys.length} analytics cache entries${companyId ? ` for company ${companyId}` : ''}`);
       }
       
@@ -166,7 +162,7 @@ export class AnalyticsCacheManager {
    */
   private static async getCachedAnalytics(cacheKey: string): Promise<CachedAnalytics | null> {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       if (!cached) return null;
       
       const data: CachedAnalytics = JSON.parse(cached);
@@ -176,7 +172,7 @@ export class AnalyticsCacheManager {
       const isExpired = Date.now() - data.timestamp > (config?.ttl || 300) * 1000;
       
       if (isExpired) {
-        await redis.del(cacheKey);
+        await RedisConnectionManager.del(cacheKey);
         return null;
       }
       
@@ -206,7 +202,7 @@ export class AnalyticsCacheManager {
         generatedAt: new Date().toISOString(),
       };
       
-      await redis.setex(cacheKey, config?.ttl || 300, JSON.stringify(cachedData));
+      await RedisConnectionManager.setex(cacheKey, config?.ttl || 300, JSON.stringify(cachedData));
     } catch (error) {
       console.warn('Failed to set cached analytics:', error);
     }
@@ -221,7 +217,7 @@ export class AnalyticsCacheManager {
     keysByTimeRange: Record<string, number>;
   }> {
     try {
-      const keys = await redis.keys(`${this.CACHE_PREFIX}:*`);
+      const keys = await RedisConnectionManager.keys(`${this.CACHE_PREFIX}:*`);
       
       // Analyze keys by time range
       const keysByTimeRange: Record<string, number> = {};

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Transaction } from '@/types/paysafe';
 import { WebhookEvent } from '@/types/webhook';
 import { redis, withDatabase } from '@/lib/database';
+import { RedisConnectionManager } from '@/lib/redis-config';
 import { DatabasePerformanceMonitor } from '@/lib/database-performance-monitor';
 import { Prisma } from '@prisma/client';
 
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     
     // Try cache first for instant response
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       if (cached) {
         console.log(`⚡ Cache HIT for ${type} (${Date.now() - startTime}ms)`);
         const duration = Date.now() - startTime;
@@ -209,7 +210,7 @@ export async function GET(request: NextRequest) {
           };
           
           // Cache with extended TTL
-          await redis.setex(cacheKey, CACHE_TTL.transactions, JSON.stringify(response)).catch(err => 
+          await RedisConnectionManager.setex(cacheKey, CACHE_TTL.transactions, JSON.stringify(response)).catch(err => 
             console.warn('Cache write failed:', err)
           );
           
@@ -363,7 +364,7 @@ export async function GET(request: NextRequest) {
           };
           
           // Cache with extended TTL
-          await redis.setex(cacheKey, CACHE_TTL.webhooks, JSON.stringify(response)).catch(err => 
+          await RedisConnectionManager.setex(cacheKey, CACHE_TTL.webhooks, JSON.stringify(response)).catch(err => 
             console.warn('Cache write failed:', err)
           );
           
@@ -507,7 +508,7 @@ export async function GET(request: NextRequest) {
           };
           
           // Cache with longest TTL for stats
-          await redis.setex(cacheKey, CACHE_TTL.stats, JSON.stringify(response)).catch(err => 
+          await RedisConnectionManager.setex(cacheKey, CACHE_TTL.stats, JSON.stringify(response)).catch(err => 
             console.warn('Cache write failed:', err)
           );
           
@@ -588,9 +589,9 @@ export async function DELETE() {
     ];
     
     for (const pattern of cachePatterns) {
-      const keys = await redis.keys(pattern);
+      const keys = await RedisConnectionManager.keys(pattern);
       if (keys.length > 0 && keys.length < 1000) { 
-        await redis.del(...keys);
+        await RedisConnectionManager.del(...keys);
       }
     }
     

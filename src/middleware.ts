@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RateLimiter } from '@/lib/rate-limiter';
+import { getCacheControlHeader } from '@/lib/cdn-config';
 
 // Initialize rate limiter
 const rateLimiter = new RateLimiter();
@@ -31,12 +32,15 @@ export async function middleware(request: NextRequest) {
   // Apply security headers to all responses
   applySecurityHeaders(response);
   
-  // Skip middleware for static files and images
+  // Apply CDN cache headers based on content type
+  applyCDNHeaders(response, pathname);
+  
+  // Skip middleware for static files and images (but headers already applied)
   if (
-    pathname.startsWith('/_next') ||
+    pathname.startsWith('/_next/static') ||
     pathname.startsWith('/static') ||
     pathname.includes('/favicon') ||
-    pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|webp)$/i)
+    pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|webp|avif)$/i)
   ) {
     return response;
   }
@@ -103,6 +107,51 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
+}
+
+// Apply CDN optimization headers based on content type
+function applyCDNHeaders(response: NextResponse, pathname: string) {
+  // Add edge region header
+  response.headers.set('X-Edge-Region', process.env.VERCEL_REGION || 'unknown');
+  
+  // Enable early hints for critical resources
+  response.headers.set('Link', [
+    '</_next/static/css>; rel=preload; as=style',
+    '<https://fonts.googleapis.com>; rel=preconnect',
+    '<https://fonts.gstatic.com>; rel=preconnect; crossorigin',
+  ].join(', '));
+  
+  // Set cache headers based on path
+  if (pathname.startsWith('/_next/static')) {
+    // Immutable assets
+    response.headers.set('Cache-Control', getCacheControlHeader('immutable'));
+    response.headers.set('CDN-Cache-Control', 'max-age=31536000');
+  } else if (pathname.startsWith('/api')) {
+    // API routes with edge caching
+    response.headers.set('Cache-Control', getCacheControlHeader('api'));
+    response.headers.set('Vary', 'Accept-Encoding, Authorization');
+  } else if (pathname.match(/\.(jpg|jpeg|png|gif|svg|webp|avif|ico)$/i)) {
+    // Images
+    response.headers.set('Cache-Control', getCacheControlHeader('static'));
+    response.headers.set('Accept-CH', 'DPR, Viewport-Width, Width');
+    response.headers.set('Vary', 'Accept, DPR, Viewport-Width, Width');
+  } else if (pathname.match(/\.(woff|woff2|ttf|otf|eot)$/i)) {
+    // Fonts
+    response.headers.set('Cache-Control', getCacheControlHeader('immutable'));
+    response.headers.set('Access-Control-Allow-Origin', '*');
+  } else if (pathname.match(/\.(js|css|map)$/i)) {
+    // JS/CSS files
+    response.headers.set('Cache-Control', getCacheControlHeader('immutable'));
+  } else {
+    // Dynamic pages
+    response.headers.set('Cache-Control', getCacheControlHeader('dynamic'));
+  }
+  
+  // Performance tracking header
+  response.headers.set('Server-Timing', `edge;dur=${Date.now() % 100};desc="Edge Processing"`);
+  
+  // Enable compression hints
+  response.headers.set('Accept-Encoding', 'br, gzip, deflate');
 }
 
 // Apply security headers to response

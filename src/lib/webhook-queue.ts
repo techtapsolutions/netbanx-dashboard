@@ -1,7 +1,8 @@
 import Queue from 'bull';
 import { WebhookEvent } from '@/types/webhook';
 import { webhookStorePersistent } from '@/lib/webhook-store-persistent';
-import { redis } from '@/lib/database';
+import { redis, redisForBull } from '@/lib/database';
+import { RedisConnectionManager } from '@/lib/redis-config';
 import crypto from 'crypto';
 import { optimizedWebhookSecretStore } from '@/lib/webhook-secret-store-optimized';
 import { CacheInvalidator } from '@/lib/api-cache';
@@ -22,20 +23,9 @@ interface WebhookProcessResult {
   error?: string;
 }
 
-// Create webhook processing queue with Redis connection
+// Create webhook processing queue with production Redis connection
 export const webhookQueue = new Queue<WebhookJobData>('webhook processing', {
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD,
-    db: parseInt(process.env.REDIS_DB || '0'),
-    // Connection pool optimization
-    maxRetriesPerRequest: 3,
-    retryDelayOnFailover: 100,
-    family: 4,
-    lazyConnect: true,
-    keepAlive: 30000,
-  },
+  redis: redisForBull, // Use IORedis instance for Bull.js compatibility
   defaultJobOptions: {
     removeOnComplete: 100, // Keep only last 100 completed jobs
     removeOnFail: 50,      // Keep only last 50 failed jobs
@@ -61,7 +51,7 @@ class WebhookDeduplicator {
     try {
       // Create deduplication key from webhook ID and signature
       const dedupKey = this.createDedupKey(webhookId, signature);
-      const exists = await redis.exists(dedupKey);
+      const exists = await RedisConnectionManager.exists(dedupKey);
       return exists === 1;
     } catch (error) {
       console.warn('Deduplication check failed:', error);
@@ -72,7 +62,7 @@ class WebhookDeduplicator {
   async markProcessed(webhookId: string, signature?: string, ttlSeconds = this.DEFAULT_TTL): Promise<void> {
     try {
       const dedupKey = this.createDedupKey(webhookId, signature);
-      await redis.setex(dedupKey, ttlSeconds, Date.now().toString());
+      await RedisConnectionManager.setex(dedupKey, ttlSeconds, Date.now().toString());
     } catch (error) {
       console.warn('Failed to mark webhook as processed:', error);
     }
@@ -131,7 +121,7 @@ class OptimizedSignatureValidator {
   private async getCachedSecret(endpoint: string): Promise<{ key: string; algorithm: string } | null> {
     try {
       const cacheKey = `${this.CACHE_KEY_PREFIX}${endpoint}`;
-      const cached = await redis.get(cacheKey);
+      const cached = await RedisConnectionManager.get(cacheKey);
       return cached ? JSON.parse(cached) : null;
     } catch (error) {
       console.warn('Failed to get cached secret:', error);
@@ -142,7 +132,7 @@ class OptimizedSignatureValidator {
   private async cacheSecret(endpoint: string, secretData: { key: string; algorithm: string }): Promise<void> {
     try {
       const cacheKey = `${this.CACHE_KEY_PREFIX}${endpoint}`;
-      await redis.setex(cacheKey, this.CACHE_TTL, JSON.stringify(secretData));
+      await RedisConnectionManager.setex(cacheKey, this.CACHE_TTL, JSON.stringify(secretData));
     } catch (error) {
       console.warn('Failed to cache secret:', error);
     }
