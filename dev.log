@@ -62,3 +62,7 @@ Session refresh error: [Error: Connection terminated unexpectedly]
  ✓ Compiled /api/auth/logout in 103ms
  POST /api/auth/logout 200 in 383ms
  GET /api/auth/me 401 in 249ms
+ ✓ Compiled middleware in 12ms
+ ✓ Compiled middleware in 12ms
+ ✓ Compiled middleware in 3ms
+ ✓ Compiled in 37ms

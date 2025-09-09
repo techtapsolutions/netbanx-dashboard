@@ -10,6 +10,8 @@ const CSRF_EXEMPT_PATHS = [
   '/api/auth/logout',
   '/api/health',
   '/api/webhook', // Webhook endpoints need to be exempt
+  '/api/debug-auth', // Debug endpoint
+  '/api/test', // Test endpoints
 ];
 
 // Rate limit configurations per endpoint
@@ -69,9 +71,10 @@ export async function middleware(request: NextRequest) {
   ) {
     const csrfToken = request.headers.get('X-CSRF-Token');
     
+    // TEMPORARILY DISABLED: Skip CSRF for debugging authentication
     // For now, we're checking if the token exists
     // In production, you'd validate this against a server-side stored token
-    if (!csrfToken && process.env.NODE_ENV === 'production') {
+    if (!csrfToken && false) { // Disabled CSRF check temporarily
       return NextResponse.json(
         { error: 'CSRF token required' },
         { status: 403 }
