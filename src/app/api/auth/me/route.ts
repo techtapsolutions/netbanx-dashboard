@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     // Generate CSRF token for this session
     const csrfToken = generateCSRFToken();
     
-    // Create response with user data
+    // Create response with user data (ensure consistent format)
     const response = NextResponse.json({
       success: true,
       user: {
@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
         lastName: user.lastName,
         role: user.role,
         companyId: user.companyId,
-        isActive: user.isActive,
       },
     });
 

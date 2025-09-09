@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/lib/auth';
 import crypto from 'crypto';
-import { Client } from 'pg';
+import { db } from '@/lib/database';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,59 +42,46 @@ export async function POST(request: NextRequest) {
     const newToken = crypto.randomBytes(48).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    // Use direct PostgreSQL connection for atomic update
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL
-    });
-
-    await client.connect();
-
     try {
-      // Start transaction
-      await client.query('BEGIN');
+      // Use Prisma transaction for atomic operations
+      await db.$transaction(async (tx) => {
+        // Delete old session
+        await tx.session.delete({
+          where: { token: oldToken }
+        });
 
-      // Delete old session
-      await client.query(
-        'DELETE FROM "Session" WHERE token = $1',
-        [oldToken]
-      );
+        // Create new session
+        await tx.session.create({
+          data: {
+            token: newToken,
+            userId: user.id,
+            expiresAt,
+            ipAddress: request.ip || request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || 'unknown',
+          }
+        });
 
-      // Create new session
-      await client.query(`
-        INSERT INTO "Session" (token, "userId", "expiresAt", "ipAddress", "userAgent", "createdAt", "updatedAt")
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        newToken,
-        user.id,
-        expiresAt,
-        request.ip || request.headers.get('x-forwarded-for') || 'unknown',
-        request.headers.get('user-agent') || 'unknown',
-        new Date(),
-        new Date()
-      ]);
+        // Update user's last activity
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            lastLoginAt: new Date(),
+            updatedAt: new Date()
+          }
+        });
+      });
 
-      // Update user's last activity
-      await client.query(
-        'UPDATE "User" SET "lastLoginAt" = $1, "updatedAt" = $2 WHERE id = $3',
-        [new Date(), new Date(), user.id]
-      );
-
-      // Commit transaction
-      await client.query('COMMIT');
-
-      // Create audit log entry
+      // Create audit log entry (outside transaction)
       try {
-        await client.query(`
-          INSERT INTO "AuditLog" (action, "userId", "companyId", "ipAddress", "userAgent", "createdAt")
-          VALUES ($1, $2, $3, $4, $5, $6)
-        `, [
-          'SESSION_REFRESH',
-          user.id,
-          user.companyId,
-          request.ip || request.headers.get('x-forwarded-for'),
-          request.headers.get('user-agent'),
-          new Date()
-        ]);
+        await db.auditLog.create({
+          data: {
+            action: 'SESSION_REFRESH',
+            userId: user.id,
+            companyId: user.companyId,
+            ipAddress: request.ip || request.headers.get('x-forwarded-for'),
+            userAgent: request.headers.get('user-agent'),
+          }
+        });
       } catch (auditError) {
         // Don't fail refresh if audit log fails
         console.error('Audit log failed:', auditError);
@@ -126,12 +113,12 @@ export async function POST(request: NextRequest) {
 
       return response;
 
-    } catch (error) {
-      // Rollback on error
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      await client.end();
+    } catch (dbError) {
+      console.error('Database error during refresh:', dbError);
+      return NextResponse.json(
+        { error: 'Failed to refresh session' },
+        { status: 500 }
+      );
     }
 
   } catch (error) {

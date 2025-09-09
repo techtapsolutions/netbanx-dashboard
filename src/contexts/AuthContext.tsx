@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearRefreshTimer]);
 
   // Refresh session
-  const refreshSession = useCallback(async () => {
+  const refreshSession = async () => {
     try {
       const response = await fetch('/api/auth/refresh', {
         method: 'POST',
@@ -68,15 +68,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.setItem('session_token', data.sessionToken);
         }
         
-        setupRefreshTimer();
+        // Setup next refresh
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+        }
+        const timer = setTimeout(() => {
+          refreshSession();
+        }, SESSION_REFRESH_INTERVAL);
+        setRefreshTimer(timer);
       } else {
         // Session expired, clear and redirect
-        clearAuthState();
+        setUser(null);
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('csrf_token');
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+          setRefreshTimer(null);
+        }
       }
     } catch (error) {
       console.error('Session refresh failed:', error);
     }
-  }, [setupRefreshTimer]);
+  };
 
   // Clear authentication state
   const clearAuthState = useCallback(() => {
@@ -87,7 +100,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearRefreshTimer]);
 
   // Check for existing session on mount
-  const checkAuthStatus = useCallback(async () => {
+  // Remove useCallback to prevent dependency issues
+  const checkAuthStatus = async () => {
     try {
       // First try with cookies (primary method)
       let response = await fetch('/api/auth/me', {
@@ -124,28 +138,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.setItem('csrf_token', csrfToken);
         }
         
-        setupRefreshTimer();
+        // Setup refresh timer after successful auth check
+        clearRefreshTimer();
+        const timer = setTimeout(() => {
+          refreshSession();
+        }, SESSION_REFRESH_INTERVAL);
+        setRefreshTimer(timer);
       } else {
         // Invalid session, clear everything
-        clearAuthState();
+        setUser(null);
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('csrf_token');
+        clearRefreshTimer();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      clearAuthState();
+      setUser(null);
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('csrf_token');
+      clearRefreshTimer();
     } finally {
       setLoading(false);
     }
-  }, [setupRefreshTimer, clearAuthState]);
+  };
 
   // Check for existing session on mount
   useEffect(() => {
+    // Only run once on mount
     checkAuthStatus();
 
     // Cleanup on unmount
     return () => {
-      clearRefreshTimer();
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
     };
-  }, [checkAuthStatus, clearRefreshTimer]);
+  }, []); // Empty dependency array - run only once on mount
 
   // Listen for storage events (logout from another tab)
   useEffect(() => {
@@ -190,11 +218,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('csrf_token', csrfToken);
       }
       
-      // Set the user
+      // Set the user immediately
       setUser(data.data.user);
       
-      // Setup refresh timer
-      setupRefreshTimer();
+      // Setup refresh timer for the new session
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      const timer = setTimeout(() => {
+        refreshSession();
+      }, SESSION_REFRESH_INTERVAL);
+      setRefreshTimer(timer);
 
       return true;
     } catch (error) {

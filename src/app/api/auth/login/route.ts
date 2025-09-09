@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Client } from 'pg';
+import { db } from '@/lib/database';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
@@ -14,28 +14,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use direct PostgreSQL connection to avoid Prisma prepared statement issues
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL
-    });
-
-    await client.connect();
-
     try {
-      // Find user
-      const userResult = await client.query(
-        'SELECT id, email, "passwordHash", "firstName", "lastName", role, "isActive", "emailVerified", "companyId" FROM "User" WHERE email = $1',
-        [email.toLowerCase()]
-      );
+      // Find user using Prisma
+      const user = await db.user.findUnique({
+        where: { 
+          email: email.toLowerCase() 
+        },
+        include: {
+          company: true
+        }
+      });
 
-      if (userResult.rows.length === 0) {
+      if (!user) {
         return NextResponse.json(
           { error: 'Invalid credentials' },
           { status: 401 }
         );
       }
-
-      const user = userResult.rows[0];
 
       if (!user.isActive) {
         return NextResponse.json(
@@ -54,54 +49,40 @@ export async function POST(request: NextRequest) {
       }
 
       // Update last login
-      await client.query(
-        'UPDATE "User" SET "lastLoginAt" = $1, "updatedAt" = $2 WHERE id = $3',
-        [new Date(), new Date(), user.id]
-      );
+      await db.user.update({
+        where: { id: user.id },
+        data: { 
+          lastLoginAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
 
       // Create session token
       const token = crypto.randomBytes(48).toString('hex');
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-      // Insert session
-      await client.query(`
-        INSERT INTO "Session" (token, "userId", "expiresAt", "ipAddress", "userAgent", "createdAt", "updatedAt")
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        token,
-        user.id,
-        expiresAt,
-        request.ip || request.headers.get('x-forwarded-for') || 'unknown',
-        request.headers.get('user-agent') || 'unknown',
-        new Date(),
-        new Date()
-      ]);
-
-      // Get company info if user has one
-      let company = null;
-      if (user.companyId) {
-        const companyResult = await client.query(
-          'SELECT id, name FROM "Company" WHERE id = $1',
-          [user.companyId]
-        );
-        if (companyResult.rows.length > 0) {
-          company = companyResult.rows[0];
+      // Insert session using Prisma
+      await db.session.create({
+        data: {
+          token,
+          userId: user.id,
+          expiresAt,
+          ipAddress: request.ip || request.headers.get('x-forwarded-for') || 'unknown',
+          userAgent: request.headers.get('user-agent') || 'unknown',
         }
-      }
+      });
 
       // Create audit log entry
       try {
-        await client.query(`
-          INSERT INTO "AuditLog" (action, "userId", "companyId", "ipAddress", "userAgent", "createdAt")
-          VALUES ($1, $2, $3, $4, $5, $6)
-        `, [
-          'LOGIN',
-          user.id,
-          user.companyId,
-          request.ip || request.headers.get('x-forwarded-for'),
-          request.headers.get('user-agent'),
-          new Date()
-        ]);
+        await db.auditLog.create({
+          data: {
+            action: 'LOGIN',
+            userId: user.id,
+            companyId: user.companyId,
+            ipAddress: request.ip || request.headers.get('x-forwarded-for'),
+            userAgent: request.headers.get('user-agent'),
+          }
+        });
       } catch (auditError) {
         // Don't fail login if audit log fails
         console.error('Audit log failed:', auditError);
@@ -118,7 +99,7 @@ export async function POST(request: NextRequest) {
             lastName: user.lastName,
             role: user.role,
             companyId: user.companyId,
-            company: company,
+            company: user.company,
           },
           expiresAt,
         },
@@ -135,8 +116,12 @@ export async function POST(request: NextRequest) {
 
       return response;
 
-    } finally {
-      await client.end();
+    } catch (dbError) {
+      console.error('Database error during login:', dbError);
+      return NextResponse.json(
+        { error: 'Login failed. Please try again.' },
+        { status: 500 }
+      );
     }
 
   } catch (error) {

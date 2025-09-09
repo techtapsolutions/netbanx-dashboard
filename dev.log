@@ -1,0 +1,64 @@
+
+> netbanx-dashboard@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.5.2 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.174:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Compiled middleware in 114ms
+ ✓ Ready in 1153ms
+ ⚠ Webpack is configured while Turbopack is not, which may cause problems.
+ ⚠ See instructions if you need to configure Turbopack:
+  https://nextjs.org/docs/app/api-reference/next-config-js/turbopack
+
+ ○ Compiling /api/auth/login ...
+ ✓ Compiled /api/auth/login in 870ms
+Login error: SyntaxError: Bad escaped character in JSON at position 59 (line 1 column 60)
+    at JSON.parse (<anonymous>)
+    at async POST (src/app/api/auth/login/route.ts:8:33)
+   6 | export async function POST(request: NextRequest) {
+   7 |   try {
+>  8 |     const { email, password } = await request.json();
+     |                                 ^
+   9 |
+  10 |     if (!email || !password) {
+  11 |       return NextResponse.json(
+ POST /api/auth/login 500 in 1312ms
+Login error: [Error: Connection terminated unexpectedly]
+ POST /api/auth/login 500 in 310ms
+ ○ Compiling /api/init ...
+ ✓ Compiled /api/init in 799ms
+prisma:warn In production, we recommend using `prisma generate --no-engine` (See: `prisma generate --help`)
+ POST /api/init 405 in 1129ms
+Session cleanup service started
+ GET /api/init 200 in 242ms
+Session cleanup completed: 3 expired, 0 orphaned, 0 over-limit sessions removed
+ ✓ Compiled /api/setup/admin in 120ms
+ GET /api/setup/admin 200 in 586ms
+Login error: [Error: Connection terminated unexpectedly]
+ POST /api/auth/login 500 in 243ms
+ ✓ Compiled /api/database/health in 130ms
+Development DB operation
+Development DB operation
+ GET /api/database/health 200 in 425ms
+ POST /api/auth/login 200 in 702ms
+ ✓ Compiled /api/auth/me in 137ms
+ GET /api/auth/me 200 in 415ms
+ POST /api/auth/login 401 in 532ms
+ ✓ Compiled middleware in 8ms
+ ✓ Compiled in 23ms
+ POST /api/auth/login 200 in 620ms
+ GET /api/auth/me 200 in 254ms
+ ✓ Compiled /api/auth/refresh in 146ms
+Session refresh error: [Error: Connection terminated unexpectedly]
+ POST /api/auth/refresh 500 in 412ms
+ POST /api/auth/login 200 in 616ms
+ GET /api/auth/me 200 in 254ms
+ POST /api/auth/refresh 200 in 419ms
+ GET /api/auth/me 200 in 259ms
+ ✓ Compiled /api/auth/logout in 103ms
+ POST /api/auth/logout 200 in 383ms
+ GET /api/auth/me 401 in 249ms

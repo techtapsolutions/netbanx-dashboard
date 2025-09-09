@@ -13,13 +13,19 @@ interface RateLimitConfig {
 
 export class RateLimiter {
   private limits: Map<string, RateLimitEntry> = new Map();
-  private cleanupInterval: NodeJS.Timeout;
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  private maxEntries = 10000; // Prevent memory bloat
 
   constructor() {
     // Clean up expired entries every minute
+    // Use unref() to prevent keeping the process alive
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
     }, 60 * 1000);
+    
+    if (this.cleanupInterval.unref) {
+      this.cleanupInterval.unref();
+    }
   }
 
   async checkLimit(
@@ -35,6 +41,11 @@ export class RateLimiter {
   }> {
     const key = `${clientId}:${endpoint}`;
     const now = Date.now();
+    
+    // Prevent memory bloat
+    if (this.limits.size > this.maxEntries) {
+      this.cleanup();
+    }
     
     let entry = this.limits.get(key);
     

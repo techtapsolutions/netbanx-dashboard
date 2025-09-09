@@ -14,7 +14,7 @@ const CSRF_EXEMPT_PATHS = [
 
 // Rate limit configurations per endpoint
 const RATE_LIMITS = {
-  '/api/auth/login': { requests: 5, windowMs: 15 * 60 * 1000 }, // 5 requests per 15 minutes
+  '/api/auth/login': { requests: 20, windowMs: 60 * 1000 }, // 20 requests per minute for testing
   '/api/auth/refresh': { requests: 10, windowMs: 60 * 1000 }, // 10 requests per minute
   '/api/auth/password-reset': { requests: 3, windowMs: 60 * 60 * 1000 }, // 3 requests per hour
   'default': { requests: 100, windowMs: 60 * 1000 }, // 100 requests per minute default
@@ -80,32 +80,23 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected routes authentication check
+  // IMPORTANT: Only check for token existence, don't verify here to avoid circular calls
   if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
     const token = request.cookies.get('session_token')?.value;
     
     if (!token) {
-      // Redirect to login if no session
-      return NextResponse.redirect(new URL('/', request.url));
+      // Check if there's a token in Authorization header (for API calls)
+      const authHeader = request.headers.get('authorization');
+      const hasBearer = authHeader?.startsWith('Bearer ');
+      
+      if (!hasBearer) {
+        // No authentication found, redirect to login
+        return NextResponse.redirect(new URL('/', request.url));
+      }
     }
     
-    // Verify token by making a request to the auth endpoint
-    try {
-      const authResponse = await fetch(new URL('/api/auth/me', request.url), {
-        headers: {
-          'Cookie': `session_token=${token}`,
-        },
-      });
-      
-      if (!authResponse.ok) {
-        // Invalid session, redirect to login
-        const redirectResponse = NextResponse.redirect(new URL('/', request.url));
-        redirectResponse.cookies.delete('session_token');
-        return redirectResponse;
-      }
-    } catch (error) {
-      console.error('Auth check failed in middleware:', error);
-      return NextResponse.redirect(new URL('/', request.url));
-    }
+    // Token exists, let the route handle verification
+    // This avoids circular dependencies and race conditions
   }
 
   return response;
