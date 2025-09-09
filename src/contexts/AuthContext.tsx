@@ -115,7 +115,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // If cookie auth fails, try with localStorage token as fallback
       if (!response.ok) {
         const token = localStorage.getItem('session_token');
-        console.log('💾 Trying localStorage token:', token ? 'present' : 'missing');
+        const csrf = localStorage.getItem('csrf_token');
+        console.log('💾 Trying localStorage token:', token ? `present (${token.length} chars)` : 'missing');
+        console.log('🔒 CSRF token:', csrf ? 'present' : 'missing');
+        console.log('🗄️ All localStorage keys:', Object.keys(localStorage));
         
         if (!token) {
           console.log('❌ No token found, setting loading to false');
@@ -169,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check for existing session on mount
   useEffect(() => {
+    console.log('🚀 AuthContext mounted, checking auth status...');
     // Only run once on mount
     checkAuthStatus();
 
@@ -197,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login function
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      console.log('🔐 Attempting login...');
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
@@ -207,6 +212,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const data = await response.json();
+      console.log('📡 Login response:', response.status, response.ok);
+      console.log('📦 Login data:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Login failed');
@@ -214,16 +221,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Store the session token in localStorage as backup
       if (data.data.sessionToken) {
+        console.log('💾 Storing session token in localStorage');
         localStorage.setItem('session_token', data.data.sessionToken);
+        console.log('✅ Token stored, length:', data.data.sessionToken.length);
+      } else {
+        console.log('❌ No session token in response');
       }
       
       // Store CSRF token
       const csrfToken = response.headers.get('X-CSRF-Token');
       if (csrfToken) {
+        console.log('🔒 Storing CSRF token');
         localStorage.setItem('csrf_token', csrfToken);
       }
       
       // Set the user immediately
+      console.log('👤 Setting user:', data.data.user.email);
       setUser(data.data.user);
       
       // Setup refresh timer for the new session
@@ -235,9 +248,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }, SESSION_REFRESH_INTERVAL);
       setRefreshTimer(timer);
 
+      console.log('✅ Login successful');
       return true;
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return false;
     }
   };
