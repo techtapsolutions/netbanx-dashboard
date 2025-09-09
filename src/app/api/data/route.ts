@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
                   description: true,
                   createdAt: true,
                   updatedAt: true,
+                  transactionTime: true,  // CRITICAL: Include for proper sorting
                   // Excluded: metadata, webhookEventId, companyId for performance
                 }
               }),
@@ -260,7 +261,7 @@ export async function GET(request: NextRequest) {
             const where = companyId ? { companyId } : {};
             
             const [events, aggregatedStats] = await Promise.all([
-              // Get webhook events with MINIMAL fields
+              // Get webhook events with payload for actual data display
               db.webhookEvent.findMany({
                 where,
                 orderBy: { timestamp: 'desc' },
@@ -272,7 +273,8 @@ export async function GET(request: NextRequest) {
                   source: true,
                   processed: true,
                   error: true,
-                  // Excluded: payload, companyId for performance
+                  payload: true,  // CRITICAL: Include payload for event data display
+                  // Excluded: companyId for performance
                 }
               }),
               
@@ -326,13 +328,13 @@ export async function GET(request: NextRequest) {
             }
           });
           
-          // Transform events efficiently (no payload for performance)
+          // Transform events with actual payload data
           const events: WebhookEvent[] = result.events.map(event => ({
             id: event.id,
             timestamp: event.timestamp.toISOString(),
             eventType: event.eventType,
             source: event.source,
-            payload: {}, // Empty for performance
+            payload: event.payload || {}, // Include actual payload data
             processed: event.processed,
             error: event.error || undefined,
           }));

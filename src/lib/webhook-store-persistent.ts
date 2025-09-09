@@ -16,8 +16,8 @@ class PersistentWebhookStore {
   private batchTimeout: NodeJS.Timeout | null = null;
   
   private options: BatchProcessingOptions = {
-    batchSize: 25,
-    maxBatchTime: 2000, // 2 seconds
+    batchSize: 50,          // Increased from 25 for better throughput
+    maxBatchTime: 500,      // Reduced from 2000ms to 500ms for faster processing
     maxRetries: 3,
   };
 
@@ -89,13 +89,13 @@ class PersistentWebhookStore {
         return JSON.parse(cached);
       }
 
-      // HIGHLY OPTIMIZED database query - minimal fields only
+      // OPTIMIZED database query - include payload for actual data display
       const events = await withDatabase(async (db) => {
         return await db.webhookEvent.findMany({
           where: companyId ? { companyId } : undefined,
           orderBy: { timestamp: 'desc' },
           take: Math.min(limit, 200), // Cap at 200 for performance
-          // MINIMAL field selection for performance
+          // Include payload for actual event data
           select: {
             id: true,
             timestamp: true,
@@ -103,7 +103,8 @@ class PersistentWebhookStore {
             source: true,
             processed: true,
             error: true,
-            // Removed payload and companyId for performance
+            payload: true,  // CRITICAL: Include payload for event data display
+            // Excluded companyId for performance
           }
         });
       }, { 
@@ -118,7 +119,7 @@ class PersistentWebhookStore {
         timestamp: event.timestamp.toISOString(),
         eventType: event.eventType,
         source: event.source,
-        payload: {}, // Empty payload for performance
+        payload: event.payload || {}, // Include actual payload if available
         processed: event.processed,
         error: event.error || undefined,
       }));

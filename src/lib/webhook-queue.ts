@@ -23,22 +23,24 @@ interface WebhookProcessResult {
   error?: string;
 }
 
-// Create webhook processing queue with production Redis connection
+// Create webhook processing queue with OPTIMIZED production Redis connection
 export const webhookQueue = new Queue<WebhookJobData>('webhook processing', {
   redis: redisForBull, // Use IORedis instance for Bull.js compatibility
   defaultJobOptions: {
-    removeOnComplete: 100, // Keep only last 100 completed jobs
-    removeOnFail: 50,      // Keep only last 50 failed jobs
-    attempts: 3,           // Retry failed jobs 3 times
+    removeOnComplete: 500,  // Keep more completed jobs for debugging
+    removeOnFail: 100,      // Keep more failed jobs for analysis
+    attempts: 3,            // Retry failed jobs 3 times
     backoff: {
       type: 'exponential',
-      delay: 2000,         // Start with 2 second delay
+      delay: 500,           // Reduced from 2000ms - Start with 500ms delay for faster retries
     },
-    delay: 0,              // Process immediately
+    delay: 0,               // Process immediately
   },
   settings: {
-    stalledInterval: 30000,    // Check for stalled jobs every 30 seconds
-    maxStalledCount: 1,        // Max stalled jobs before considered failed
+    stalledInterval: 10000,     // Reduced from 30s - Check for stalled jobs every 10 seconds
+    maxStalledCount: 2,         // Increased tolerance for stalled jobs
+    lockDuration: 30000,        // 30 second lock duration
+    lockRenewTime: 15000,       // Renew lock every 15 seconds
   },
 });
 
@@ -172,8 +174,8 @@ class OptimizedSignatureValidator {
 
 export const signatureValidator = new OptimizedSignatureValidator();
 
-// Queue processing logic
-webhookQueue.process('*', async (job) => {
+// Queue processing logic with INCREASED CONCURRENCY for faster processing
+webhookQueue.process('*', 5, async (job) => {  // Process 5 jobs concurrently
   const startTime = Date.now();
   const { webhookEvent, rawBody, signature, headers } = job.data;
 
@@ -343,7 +345,7 @@ export class WebhookQueueManager {
   }
 }
 
-// Smart cache invalidation based on webhook content
+// Smart cache invalidation based on webhook content - OPTIMIZED for performance
 async function performSmartCacheInvalidation(webhookEvent: WebhookEvent): Promise<void> {
   try {
     const eventType = webhookEvent.eventType.toLowerCase();
@@ -352,37 +354,61 @@ async function performSmartCacheInvalidation(webhookEvent: WebhookEvent): Promis
     // Extract company ID if available
     const companyId = payload.companyId || payload.eventData?.companyId;
     
-    // Payment-related events invalidate transactions and analytics
+    // OPTIMIZED: Use selective cache invalidation to reduce overhead
+    // Only invalidate specific cache keys instead of entire categories
+    
+    // Payment-related events - invalidate only specific cache keys
     if (eventType.includes('payment') || eventType.includes('transaction')) {
-      console.log('Invalidating payment-related caches for webhook:', webhookEvent.id);
+      console.log('Selective cache invalidation for payment webhook:', webhookEvent.id);
       
-      await Promise.all([
-        CacheInvalidator.invalidateTransactions(companyId),
-        CacheInvalidator.invalidateAnalytics(companyId),
-      ]);
+      // Invalidate only the specific data API caches, not all caches
+      const cacheKeys = [
+        `api:data:v2:transactions:${companyId || 'all'}:*`,
+        `api:data:v2:stats:${companyId || 'all'}:*`,
+      ];
+      
+      for (const pattern of cacheKeys) {
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0 && keys.length < 100) {  // Safety limit
+          await redis.del(...keys);
+        }
+      }
     }
     
-    // Account-related events invalidate accounts cache
+    // Account-related events - minimal invalidation
     else if (eventType.includes('account') || eventType.includes('customer')) {
-      console.log('Invalidating account-related caches for webhook:', webhookEvent.id);
+      console.log('Selective cache invalidation for account webhook:', webhookEvent.id);
       
-      await CacheInvalidator.invalidateAccounts(companyId);
+      // Only invalidate account-specific caches
+      const pattern = `api:data:v2:accounts:${companyId || 'all'}:*`;
+      const keys = await redis.keys(pattern);
+      if (keys.length > 0 && keys.length < 50) {
+        await redis.del(...keys);
+      }
     }
     
-    // High-impact events invalidate all caches
+    // High-impact events - targeted invalidation
     else if (eventType.includes('error') || eventType.includes('failed') || eventType.includes('refund')) {
-      console.log('Invalidating all caches due to high-impact webhook:', webhookEvent.id);
+      console.log('Targeted cache invalidation for high-impact webhook:', webhookEvent.id);
       
-      await Promise.all([
-        CacheInvalidator.invalidateTransactions(companyId),
-        CacheInvalidator.invalidateAnalytics(companyId),
-        CacheInvalidator.invalidateAccounts(companyId),
-      ]);
+      // Invalidate only the most critical caches
+      const patterns = [
+        `api:data:v2:transactions:${companyId || 'all'}:*`,
+        `api:data:v2:stats:${companyId || 'all'}:*`,
+      ];
+      
+      for (const pattern of patterns) {
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0 && keys.length < 100) {
+          await redis.del(...keys);
+        }
+      }
     }
     
-    // Default: always invalidate analytics for new data
+    // Low-priority events: skip cache invalidation for better performance
     else {
-      await CacheInvalidator.invalidateAnalytics(companyId);
+      console.log('Skipping cache invalidation for low-priority webhook:', webhookEvent.eventType);
+      // Don't invalidate cache for every webhook - reduces overhead significantly
     }
     
   } catch (error) {
