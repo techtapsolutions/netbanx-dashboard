@@ -3,7 +3,7 @@ import { WebhookEvent } from '@/types/webhook';
 import { webhookStorePersistent } from '@/lib/webhook-store-persistent';
 import { redis } from '@/lib/database';
 import crypto from 'crypto';
-import { getWebhookSecret } from '@/lib/webhook-secret-store';
+import { optimizedWebhookSecretStore } from '@/lib/webhook-secret-store-optimized';
 import { CacheInvalidator } from '@/lib/api-cache';
 
 // Define job data interfaces
@@ -109,8 +109,8 @@ class OptimizedSignatureValidator {
         return this.performValidation(body, signature, cachedSecret.key, cachedSecret.algorithm);
       }
 
-      // Fallback to database lookup
-      const secretData = await getWebhookSecret(endpoint);
+      // Use optimized batch loading (eliminates N+1 queries)
+      const secretData = await optimizedWebhookSecretStore.getWebhookSecret(endpoint);
       if (secretData) {
         // Cache the secret for future use
         await this.cacheSecret(endpoint, secretData);
@@ -416,8 +416,7 @@ async function updateWebhookMetrics(type: 'success' | 'failure', processingTime:
   }
 }
 
-// Export queue for external monitoring
-export { webhookQueue };
+// Queue is already exported at the top of the file
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

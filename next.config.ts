@@ -37,9 +37,6 @@ const nextConfig: NextConfig = {
   
   // External packages configuration
   serverExternalPackages: ['@prisma/client'],
-
-  // Enable SWC minification for better performance
-  swcMinify: true,
   
   // Security headers
   async headers() {

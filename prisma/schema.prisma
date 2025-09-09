@@ -65,6 +65,9 @@ model Transaction {
   companyId         String?
   company           Company? @relation(fields: [companyId], references: [id])
   
+  // CRITICAL: Primary query pattern optimization (transactionTime DESC with company filter)
+  @@index([transactionTime], name: "idx_transactions_time_desc")
+  
   // Optimized composite indexes for transaction queries
   @@index([status, transactionTime, companyId], name: "idx_transactions_status_time_company")
   @@index([companyId, transactionTime], name: "idx_transactions_company_time")

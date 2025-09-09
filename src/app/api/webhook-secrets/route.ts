@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withDatabase } from '@/lib/database';
 import { encryptSecret, decryptSecret, validateSecretKey, hashSecretForLogging } from '@/lib/encryption';
 import { ensureWebhookSecretsTable } from '@/lib/db-init';
+import { invalidateWebhookSecretsCache } from '@/lib/webhook-secret-store-optimized';
 import { v4 as uuidv4 } from 'uuid';
 
 // Get all webhook secrets (without exposing the actual keys)
@@ -180,6 +181,11 @@ export async function POST(request: NextRequest) {
       keyVersion: webhookSecret.keyVersion
     });
 
+    // Invalidate the optimized cache to ensure fresh data
+    await invalidateWebhookSecretsCache().catch(err => 
+      console.warn('Failed to invalidate webhook secrets cache:', err)
+    );
+
     return NextResponse.json({
       success: true,
       message: `Webhook secret ${existing ? 'updated' : 'created'} successfully`,
@@ -226,6 +232,11 @@ export async function DELETE(request: NextRequest) {
     console.log(`Webhook secret deleted for endpoint: ${endpoint}`, {
       secretId: deleted.id
     });
+
+    // Invalidate the optimized cache to ensure fresh data
+    await invalidateWebhookSecretsCache().catch(err => 
+      console.warn('Failed to invalidate webhook secrets cache:', err)
+    );
 
     return NextResponse.json({
       success: true,

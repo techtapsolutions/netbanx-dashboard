@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useMemo, useState, useCallback } from 'react';
-import { FixedSizeList as List } from 'react-window';
+import { List } from 'react-window';
 import { Transaction } from '@/types/paysafe';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ChevronUp, ChevronDown, Download } from 'lucide-react';

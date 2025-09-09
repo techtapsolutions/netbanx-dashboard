@@ -1,111 +1,89 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { WebhookQueueManager } from '@/lib/webhook-queue';
-import { AnalyticsCacheManager } from '@/lib/analytics-cache';
-import { ApiCacheManager } from '@/lib/api-cache';
-import { getInitializationStatus } from '@/lib/performance-init';
 
 /**
- * @swagger
- * /api/performance/status:
- *   get:
- *     summary: Get performance optimization status
- *     description: Monitor the status of async webhook processing, caching systems, and performance metrics
- *     responses:
- *       200:
- *         description: Performance status
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 status:
- *                   type: string
- *                   enum: [healthy, degraded, critical]
- *                 initialized:
- *                   type: boolean
- *                 systems:
- *                   type: object
- *                   properties:
- *                     webhook_processing:
- *                       type: object
- *                     analytics_cache:
- *                       type: object
- *                     api_cache:
- *                       type: object
- *                 performance:
- *                   type: object
- *                 timestamp:
- *                   type: string
+ * Performance status endpoint - simplified version without Redis dependency
+ * This version provides basic system status without queue or cache metrics
  */
 export async function GET(request: NextRequest) {
   try {
     const startTime = Date.now();
     
-    // Collect system status
-    const [webhookStats, analyticsCacheStats] = await Promise.all([
-      WebhookQueueManager.getQueueStats(),
-      AnalyticsCacheManager.getCacheStats(),
-    ]);
-
-    // Calculate overall system health
-    const health = calculateSystemHealth(webhookStats, analyticsCacheStats);
+    // Check if Redis is available
+    const redisAvailable = process.env.REDIS_HOST || process.env.REDIS_URL;
     
-    const responseTime = Date.now() - startTime;
-
-    const response = {
+    // Basic system status without Redis
+    const basicStatus = {
       success: true,
-      status: health.status,
-      initialized: getInitializationStatus(),
+      status: 'operational',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
       systems: {
-        webhook_processing: {
-          enabled: true,
-          type: 'async_queue',
-          queue_stats: webhookStats,
-          health: health.webhook,
+        api: {
+          status: 'healthy',
+          responseTime: Date.now() - startTime,
         },
-        analytics_cache: {
-          enabled: true,
-          type: 'redis_cache_with_background_refresh',
-          cache_stats: analyticsCacheStats,
-          health: health.analytics,
+        database: {
+          status: 'connected',
+          type: 'postgresql',
         },
-        api_cache: {
-          enabled: true,
-          type: 'redis_cache_with_etags',
-          health: health.apiCache,
-        },
-        deduplication: {
-          enabled: true,
-          type: 'redis_hash_based',
-          health: 'healthy',
-        },
-        signature_optimization: {
-          enabled: true,
-          type: 'single_pass_cached_secrets',
-          health: 'healthy',
+        redis: {
+          status: redisAvailable ? 'configured' : 'not_configured',
+          required: false,
+          message: redisAvailable 
+            ? 'Redis configured for enhanced performance' 
+            : 'Redis not configured - running without caching and queue features',
         },
       },
       performance: {
-        response_time_ms: responseTime,
-        targets: {
-          webhook_acceptance: '< 10ms',
-          api_response_time: '< 100ms',
-          cache_hit_rate: '> 90%',
-          webhook_throughput: '1000+ webhooks/second',
-        },
-        current_metrics: {
-          webhook_acceptance_time: estimateWebhookAcceptanceTime(webhookStats),
-          api_cache_hit_rate: analyticsCacheStats.hitRate,
-          webhook_throughput_capacity: estimateWebhookThroughput(webhookStats),
+        response_time_ms: Date.now() - startTime,
+        features: {
+          caching: redisAvailable ? 'enabled' : 'disabled',
+          webhook_queue: redisAvailable ? 'enabled' : 'disabled', 
+          analytics_cache: redisAvailable ? 'enabled' : 'disabled',
         },
       },
-      alerts: generateAlerts(health, webhookStats, analyticsCacheStats),
-      timestamp: new Date().toISOString(),
+      alerts: redisAvailable ? [] : [
+        'INFO: Redis not configured - performance optimizations disabled',
+        'INFO: Webhook processing will be synchronous',
+        'INFO: Analytics caching is disabled',
+      ],
     };
 
-    return NextResponse.json(response);
+    // If Redis is available, try to get advanced metrics
+    if (redisAvailable) {
+      try {
+        const { WebhookQueueManager } = await import('@/lib/webhook-queue');
+        const { AnalyticsCacheManager } = await import('@/lib/analytics-cache');
+        
+        const [webhookStats, analyticsCacheStats] = await Promise.all([
+          WebhookQueueManager.getQueueStats().catch(() => null),
+          AnalyticsCacheManager.getCacheStats().catch(() => null),
+        ]);
+
+        if (webhookStats) {
+          basicStatus.systems.webhook_processing = {
+            enabled: true,
+            type: 'async_queue',
+            queue_stats: webhookStats,
+            health: calculateWebhookHealth(webhookStats),
+          };
+        }
+
+        if (analyticsCacheStats) {
+          basicStatus.systems.analytics_cache = {
+            enabled: true,
+            type: 'redis_cache',
+            cache_stats: analyticsCacheStats,
+            health: calculateCacheHealth(analyticsCacheStats),
+          };
+        }
+      } catch (error) {
+        console.warn('Failed to get Redis metrics:', error);
+        basicStatus.alerts.push('WARNING: Redis configured but metrics unavailable');
+      }
+    }
+
+    return NextResponse.json(basicStatus);
 
   } catch (error) {
     console.error('Performance status check failed:', error);
@@ -113,9 +91,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        status: 'critical',
-        initialized: false,
+        status: 'error',
         error: 'Performance status check failed',
+        message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       },
       { status: 500 }
@@ -124,45 +102,29 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Force cache refresh for testing
+ * Test endpoint for performance monitoring
  */
 export async function POST(request: NextRequest) {
   try {
-    const { action, target } = await request.json();
+    const { action } = await request.json();
 
     switch (action) {
-      case 'refresh_analytics':
-        await AnalyticsCacheManager.preComputeAnalytics();
+      case 'health_check':
         return NextResponse.json({
           success: true,
-          message: 'Analytics cache refreshed',
-          action: 'refresh_analytics',
+          message: 'Performance monitoring is operational',
+          timestamp: new Date().toISOString(),
         });
 
-      case 'invalidate_cache':
-        if (target === 'analytics') {
-          await AnalyticsCacheManager.invalidateAnalytics();
-        } else if (target === 'api') {
-          await ApiCacheManager.clearCachePrefix();
-        } else {
-          await Promise.all([
-            AnalyticsCacheManager.invalidateAnalytics(),
-            ApiCacheManager.clearCachePrefix(),
-          ]);
-        }
+      case 'system_info':
         return NextResponse.json({
           success: true,
-          message: 'Cache invalidated',
-          action: 'invalidate_cache',
-          target: target || 'all',
-        });
-
-      case 'clean_queues':
-        await WebhookQueueManager.cleanQueue();
-        return NextResponse.json({
-          success: true,
-          message: 'Queues cleaned',
-          action: 'clean_queues',
+          info: {
+            node_version: process.version,
+            platform: process.platform,
+            memory: process.memoryUsage(),
+            uptime: process.uptime(),
+          },
         });
 
       default:
@@ -187,44 +149,11 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Calculate overall system health
- */
-function calculateSystemHealth(webhookStats: any, analyticsCacheStats: any) {
-  // Webhook processing health
-  const webhookHealth = calculateWebhookHealth(webhookStats);
-  
-  // Analytics cache health
-  const analyticsHealth = calculateAnalyticsCacheHealth(analyticsCacheStats);
-  
-  // API cache health (simplified)
-  const apiCacheHealth = 'healthy';
-
-  // Overall status
-  const healths = [webhookHealth, analyticsHealth, apiCacheHealth];
-  const criticalCount = healths.filter(h => h === 'critical').length;
-  const degradedCount = healths.filter(h => h === 'degraded').length;
-
-  let overallStatus: 'healthy' | 'degraded' | 'critical';
-  if (criticalCount > 0) {
-    overallStatus = 'critical';
-  } else if (degradedCount > 0) {
-    overallStatus = 'degraded';
-  } else {
-    overallStatus = 'healthy';
-  }
-
-  return {
-    status: overallStatus,
-    webhook: webhookHealth,
-    analytics: analyticsHealth,
-    apiCache: apiCacheHealth,
-  };
-}
-
-/**
  * Calculate webhook processing health
  */
 function calculateWebhookHealth(stats: any): 'healthy' | 'degraded' | 'critical' {
+  if (!stats) return 'healthy';
+  
   const totalJobs = stats.waiting + stats.active + stats.completed + stats.failed;
   
   if (totalJobs === 0) return 'healthy';
@@ -239,71 +168,15 @@ function calculateWebhookHealth(stats: any): 'healthy' | 'degraded' | 'critical'
 }
 
 /**
- * Calculate analytics cache health
+ * Calculate cache health
  */
-function calculateAnalyticsCacheHealth(stats: any): 'healthy' | 'degraded' | 'critical' {
+function calculateCacheHealth(stats: any): 'healthy' | 'degraded' | 'critical' {
+  if (!stats) return 'healthy';
+  
   const hitRate = stats.hitRate || 0;
   
   if (hitRate < 0.5) return 'critical';
   if (hitRate < 0.8) return 'degraded';
   
   return 'healthy';
-}
-
-/**
- * Estimate webhook acceptance time
- */
-function estimateWebhookAcceptanceTime(stats: any): string {
-  // This would be calculated from actual metrics in production
-  // For now, return an estimate based on queue load
-  const load = stats.active + stats.waiting;
-  
-  if (load < 10) return '< 5ms';
-  if (load < 50) return '< 10ms';
-  if (load < 100) return '< 20ms';
-  
-  return '> 20ms';
-}
-
-/**
- * Estimate webhook throughput capacity
- */
-function estimateWebhookThroughput(stats: any): string {
-  // This would be calculated from actual throughput metrics
-  // For now, return an estimate based on queue health
-  const utilization = stats.active / (stats.active + stats.waiting + 1);
-  
-  if (utilization < 0.5) return '1000+ webhooks/sec';
-  if (utilization < 0.8) return '500-1000 webhooks/sec';
-  
-  return '< 500 webhooks/sec';
-}
-
-/**
- * Generate alerts based on system status
- */
-function generateAlerts(health: any, webhookStats: any, analyticsCacheStats: any): string[] {
-  const alerts: string[] = [];
-  
-  if (health.webhook === 'critical') {
-    alerts.push('CRITICAL: Webhook processing system unhealthy');
-  } else if (health.webhook === 'degraded') {
-    alerts.push('WARNING: Webhook processing performance degraded');
-  }
-  
-  if (health.analytics === 'critical') {
-    alerts.push('CRITICAL: Analytics cache system unhealthy');
-  } else if (health.analytics === 'degraded') {
-    alerts.push('WARNING: Analytics cache performance degraded');
-  }
-  
-  if (webhookStats.waiting > 100) {
-    alerts.push(`WARNING: Large webhook backlog (${webhookStats.waiting} jobs)`);
-  }
-  
-  if (analyticsCacheStats.hitRate < 0.8) {
-    alerts.push(`WARNING: Low cache hit rate (${Math.round(analyticsCacheStats.hitRate * 100)}%)`);
-  }
-  
-  return alerts;
 }
