@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { webhookStore } from '@/lib/webhook-store';
+import { webhookStorePersistent } from '@/lib/webhook-store-persistent';
 import { WebhookEvent } from '@/types/webhook';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create webhook event
+    // Create webhook event with additional metadata
     const webhookEvent: WebhookEvent = {
       id: uuidv4(),
       timestamp,
@@ -62,10 +62,16 @@ export async function POST(request: NextRequest) {
       source: 'netbanx',
       payload,
       processed: true,
+      signature,
+      ipAddress: request.ip || 
+                 request.headers.get('x-forwarded-for') || 
+                 request.headers.get('x-real-ip') || 
+                 'unknown',
+      userAgent: request.headers.get('user-agent') || undefined,
     };
 
-    // Store the webhook event
-    webhookStore.addWebhookEvent(webhookEvent);
+    // Store the webhook event (non-blocking for performance)
+    webhookStorePersistent.addWebhookEvent(webhookEvent);
 
     console.log('Successfully processed webhook:', {
       id: webhookEvent.id,
@@ -95,9 +101,14 @@ export async function POST(request: NextRequest) {
       payload: { id: 'error', eventType: 'ERROR', eventData: { id: 'error', merchantRefNum: 'error' } },
       processed: false,
       error: error instanceof Error ? error.message : 'Unknown error',
+      ipAddress: request.ip || 
+                 request.headers.get('x-forwarded-for') || 
+                 request.headers.get('x-real-ip') || 
+                 'unknown',
+      userAgent: request.headers.get('user-agent') || undefined,
     };
     
-    webhookStore.addWebhookEvent(failedEvent);
+    webhookStorePersistent.addWebhookEvent(failedEvent);
     
     return NextResponse.json(
       { error: 'Internal server error' },
@@ -107,15 +118,30 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  // Health check endpoint
-  const stats = webhookStore.getWebhookStats();
-  
-  return NextResponse.json({
-    status: 'active',
-    endpoint: '/api/webhooks/netbanx',
-    stats,
-    timestamp: new Date().toISOString(),
-  });
+  try {
+    // Health check endpoint with database stats
+    const [stats, healthStatus] = await Promise.all([
+      webhookStorePersistent.getWebhookStats(),
+      webhookStorePersistent.getHealthStatus(),
+    ]);
+    
+    return NextResponse.json({
+      status: 'active',
+      endpoint: '/api/webhooks/netbanx',
+      stats,
+      health: healthStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    
+    return NextResponse.json({
+      status: 'error',
+      endpoint: '/api/webhooks/netbanx',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    }, { status: 500 });
+  }
 }
 
 // HMAC signature validation using stored encrypted secret key

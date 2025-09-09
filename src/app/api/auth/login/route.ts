@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({
         success: true,
         data: {
-          token,
+          sessionToken: token, // Fixed: Changed from 'token' to 'sessionToken' to match frontend expectation
           user: {
             id: user.id,
             email: user.email,
@@ -124,11 +124,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Set session cookie
-      response.cookies.set('session-token', token, {
+      // Set secure httpOnly cookie for session management
+      response.cookies.set('session_token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax', // Changed from 'strict' to 'lax' for better compatibility
         maxAge: 24 * 60 * 60, // 24 hours
         path: '/',
       });

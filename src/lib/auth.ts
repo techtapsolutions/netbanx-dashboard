@@ -38,9 +38,16 @@ export interface SessionInfo {
 }
 
 export class AuthService {
-  private static readonly JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret';
-  private static readonly SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-  private static readonly PASSWORD_RESET_DURATION = 60 * 60 * 1000; // 1 hour
+  private static readonly JWT_SECRET = process.env.JWT_SECRET;
+  private static readonly SESSION_DURATION = parseInt(process.env.SESSION_DURATION || '86400000'); // 24 hours default
+  private static readonly PASSWORD_RESET_DURATION = parseInt(process.env.PASSWORD_RESET_DURATION || '3600000'); // 1 hour default
+  
+  static {
+    // Validate JWT secret on startup
+    if (!this.JWT_SECRET || this.JWT_SECRET.length < 32) {
+      throw new Error('JWT_SECRET environment variable must be set and at least 32 characters long');
+    }
+  }
 
   // Hash password
   static async hashPassword(password: string): Promise<string> {

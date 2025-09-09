@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
     
     switch (type) {
       case 'transactions':
-        const transactions = webhookStore.getTransactions();
+        // Use async methods for database-backed data
+        const transactions = await webhookStore.getTransactionsAsync();
         const summary = {
           totalTransactions: transactions.length,
           totalAmount: transactions.reduce((sum, t) => sum + t.amount, 0),
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
           failedTransactions: transactions.filter(t => t.status === 'FAILED').length,
           pendingTransactions: transactions.filter(t => t.status === 'PENDING').length,
           currency: 'USD',
-          period: 'Real-time data from webhooks',
+          period: 'Real-time data from database',
         };
         
         return NextResponse.json({
@@ -27,8 +28,9 @@ export async function GET(request: NextRequest) {
         
       case 'webhooks':
         const limit = parseInt(searchParams.get('limit') || '50');
-        const events = webhookStore.getWebhookEvents(limit);
-        const stats = webhookStore.getWebhookStats();
+        // Use async methods for database-backed data
+        const events = await webhookStore.getWebhookEventsAsync(limit);
+        const stats = await webhookStore.getWebhookStatsAsync();
         
         return NextResponse.json({
           success: true,
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
       case 'stats':
         return NextResponse.json({
           success: true,
-          stats: webhookStore.getWebhookStats(),
+          stats: await webhookStore.getWebhookStatsAsync(),
         });
         
       default:
@@ -65,11 +67,12 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    webhookStore.clearData();
+    // Use async method for database-backed clearing
+    await webhookStore.clearDataAsync();
     
     return NextResponse.json({
       success: true,
-      message: 'All webhook data cleared',
+      message: 'All webhook data cleared from database',
     });
     
   } catch (error) {
