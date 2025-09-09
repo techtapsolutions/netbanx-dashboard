@@ -42,14 +42,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshTimer]);
 
-  // Setup session refresh timer
-  const setupRefreshTimer = useCallback(() => {
-    clearRefreshTimer();
+  // Setup session refresh timer - simplified to avoid circular dependencies
+  const setupRefreshTimer = () => {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+    }
     const timer = setTimeout(() => {
       refreshSession();
     }, SESSION_REFRESH_INTERVAL);
     setRefreshTimer(timer);
-  }, [clearRefreshTimer]);
+  };
 
   // Refresh session
   const refreshSession = async () => {
@@ -100,21 +102,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearRefreshTimer]);
 
   // Check for existing session on mount
-  // Remove useCallback to prevent dependency issues
   const checkAuthStatus = async () => {
+    console.log('🔍 Checking auth status...');
     try {
-      // First try with cookies (primary method)
+      // First try with cookies (primary method) - remove CSRF header initially to avoid issues
       let response = await fetch('/api/auth/me', {
         credentials: 'include', // Include cookies
-        headers: {
-          'X-CSRF-Token': localStorage.getItem('csrf_token') || '',
-        },
       });
+
+      console.log('🔐 First auth check response:', response.status, response.ok);
 
       // If cookie auth fails, try with localStorage token as fallback
       if (!response.ok) {
         const token = localStorage.getItem('session_token');
+        console.log('💾 Trying localStorage token:', token ? 'present' : 'missing');
+        
         if (!token) {
+          console.log('❌ No token found, setting loading to false');
           setLoading(false);
           return;
         }
@@ -122,29 +126,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         response = await fetch('/api/auth/me', {
           headers: {
             'Authorization': `Bearer ${token}`,
-            'X-CSRF-Token': localStorage.getItem('csrf_token') || '',
           },
           credentials: 'include',
         });
+        
+        console.log('🔐 Second auth check response:', response.status, response.ok);
       }
 
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Auth successful, user:', data.user.email);
         setUser(data.user);
         
         // Store CSRF token if provided
         const csrfToken = response.headers.get('X-CSRF-Token');
         if (csrfToken) {
           localStorage.setItem('csrf_token', csrfToken);
+          console.log('🔒 CSRF token stored');
         }
         
         // Setup refresh timer after successful auth check
-        clearRefreshTimer();
-        const timer = setTimeout(() => {
-          refreshSession();
-        }, SESSION_REFRESH_INTERVAL);
-        setRefreshTimer(timer);
+        setupRefreshTimer();
       } else {
+        console.log('❌ Auth failed, clearing session');
         // Invalid session, clear everything
         setUser(null);
         localStorage.removeItem('session_token');
@@ -152,12 +156,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearRefreshTimer();
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      console.error('❌ Auth check failed:', error);
       setUser(null);
       localStorage.removeItem('session_token');
       localStorage.removeItem('csrf_token');
       clearRefreshTimer();
     } finally {
+      console.log('🏁 Setting loading to false');
       setLoading(false);
     }
   };
