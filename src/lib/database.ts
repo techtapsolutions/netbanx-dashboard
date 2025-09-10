@@ -35,7 +35,96 @@ function isServerlessEnvironment(): boolean {
 function generateUniqueConnectionId(): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 8);
-  return `conn_${timestamp}_${random}`;
+  const processId = process.pid || Math.floor(Math.random() * 10000);
+  return `conn_${timestamp}_${random}_${processId}`;
+}
+
+// Advanced connection health monitoring
+interface DatabaseConnectionHealth {
+  isHealthy: boolean;
+  lastCheck: number;
+  consecutiveFailures: number;
+  averageLatency: number;
+  connectionCount: number;
+  preparedStatementErrors: number;
+}
+
+// Database circuit breaker for connection reliability
+class DatabaseCircuitBreaker {
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private nextAttemptTime = 0;
+  private readonly failureThreshold = 5;
+  private readonly recoveryTimeout = 30000; // 30 seconds
+  private readonly successThreshold = 3;
+  private successCount = 0;
+
+  async execute<T>(operation: () => Promise<T>, operationName?: string): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() < this.nextAttemptTime) {
+        throw new Error(`Database circuit breaker OPEN: ${operationName || 'Operation'} temporarily unavailable`);
+      }
+      this.state = 'HALF_OPEN';
+      this.successCount = 0;
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess(operationName);
+      return result;
+    } catch (error) {
+      this.onFailure(operationName);
+      throw error;
+    }
+  }
+
+  private onSuccess(operationName?: string): void {
+    if (this.state === 'HALF_OPEN') {
+      this.successCount++;
+      if (this.successCount >= this.successThreshold) {
+        this.state = 'CLOSED';
+        this.failureCount = 0;
+        console.log(`🟢 Database circuit breaker: CLOSED (recovered) - ${operationName}`);
+      }
+    } else if (this.state === 'CLOSED') {
+      this.failureCount = 0;
+    }
+  }
+
+  private onFailure(operationName?: string): void {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.nextAttemptTime = Date.now() + this.recoveryTimeout;
+      console.log(`🔴 Database circuit breaker: OPEN (recovery failed) - ${operationName}`);
+    } else if (this.state === 'CLOSED' && this.failureCount >= this.failureThreshold) {
+      this.state = 'OPEN';
+      this.nextAttemptTime = Date.now() + this.recoveryTimeout;
+      console.log(`🔴 Database circuit breaker: OPEN (${this.failureCount} failures) - ${operationName}`);
+    }
+  }
+
+  getStats() {
+    return {
+      state: this.state,
+      failureCount: this.failureCount,
+      successCount: this.successCount,
+      lastFailureTime: this.lastFailureTime,
+      nextAttemptTime: this.nextAttemptTime
+    };
+  }
+
+  reset(): void {
+    this.state = 'CLOSED';
+    this.failureCount = 0;
+    this.successCount = 0;
+    this.lastFailureTime = 0;
+    this.nextAttemptTime = 0;
+    console.log('🔄 Database circuit breaker: RESET');
+  }
 }
 
 // Create serverless-optimized connection string
@@ -48,26 +137,40 @@ function createServerlessConnectionString(): string {
   try {
     const url = new URL(originalUrl);
     
-    // Critical: Add unique application_name to prevent prepared statement conflicts
+    // ULTRA-AGGRESSIVE prepared statement conflict prevention
     const uniqueId = generateUniqueConnectionId();
     url.searchParams.set('application_name', uniqueId);
     
-    // OPTIMIZED serverless configuration for <2s response times
-    url.searchParams.set('prepared_statements', 'false');  // Critical for serverless
-    url.searchParams.set('connection_limit', '3');         // Reduced for efficiency
-    url.searchParams.set('pool_timeout', '3');             // Faster timeout
-    url.searchParams.set('connect_timeout', '5');          // Quick connection
-    url.searchParams.set('statement_timeout', '8000');     // Aggressive timeout
-    url.searchParams.set('idle_timeout', '60');            // Short idle time
+    // CRITICAL: Completely disable prepared statements in ALL forms
+    url.searchParams.set('prepared_statements', 'false');
+    url.searchParams.set('prepareThreshold', '0');
+    url.searchParams.set('binaryTransfer', 'false');
+    url.searchParams.set('stringtype', 'unspecified');
     
-    // Supabase/PgBouncer optimizations for production performance
+    // Force connection-level isolation 
+    url.searchParams.set('options', `-c default_transaction_isolation=read_committed -c statement_timeout=8000ms -c idle_in_transaction_session_timeout=10000ms`);
+    
+    // OPTIMIZED serverless configuration for <2s response times
+    url.searchParams.set('connection_limit', '2');         // Ultra-reduced for isolation
+    url.searchParams.set('pool_timeout', '2');             // Ultra-fast timeout
+    url.searchParams.set('connect_timeout', '4');          // Quick connection
+    url.searchParams.set('statement_timeout', '8000');     // Aggressive timeout
+    url.searchParams.set('idle_timeout', '30');            // Ultra-short idle time
+    url.searchParams.set('query_timeout', '8000');         // Query-level timeout
+    
+    // Enhanced Supabase/PgBouncer optimizations
     url.searchParams.set('pgbouncer', 'true');
-    url.searchParams.set('pool_mode', 'transaction');      // Most efficient mode
-    url.searchParams.set('max_client_conn', '50');         // Optimized for burst
-    url.searchParams.set('default_pool_size', '15');       // Balanced pool size
+    url.searchParams.set('pool_mode', 'transaction');      // Transaction-level isolation
+    url.searchParams.set('max_client_conn', '25');         // Reduced for reliability
+    url.searchParams.set('default_pool_size', '5');        // Minimal pool for isolation
+    url.searchParams.set('server_reset_query', 'DISCARD ALL'); // Clean slate for each connection
+    
+    // Add randomized schema search path to further isolate connections
+    const schemaId = Math.random().toString(36).substring(2, 6);
+    url.searchParams.set('search_path', `public,temp_${schemaId}`);
     
     const newUrl = url.toString();
-    console.log(`Created serverless connection string with ID: ${uniqueId}`);
+    console.log(`🔒 Created ultra-isolated serverless connection: ${uniqueId}`);
     return newUrl;
   } catch (error) {
     console.error('Failed to modify DATABASE_URL:', error);
@@ -99,54 +202,220 @@ function createPrismaClient(forceServerless = false): PrismaClient {
 // OPTIMIZED connection pool manager for <2s response times
 class ServerlessConnectionManager {
   private static instance: ServerlessConnectionManager;
-  private clients: Map<string, { client: PrismaClient; created: number; lastUsed: number }> = new Map();
+  private clients: Map<string, { client: PrismaClient; created: number; lastUsed: number; connectionId: string }> = new Map();
   private lastCleanup: number = Date.now();
-  private readonly MAX_POOL_SIZE = 5;   // Reduced for efficiency
-  private readonly CLIENT_TTL = 120000; // 2 minutes TTL (faster recycling)
-  private readonly CLEANUP_INTERVAL = 15000; // 15 seconds (more frequent)
+  private readonly MAX_POOL_SIZE = 3;   // Ultra-reduced for reliability
+  private readonly CLIENT_TTL = 90000;  // 1.5 minutes TTL (aggressive recycling)
+  private readonly CLEANUP_INTERVAL = 10000; // 10 seconds (very frequent)
+  private circuitBreaker: DatabaseCircuitBreaker = new DatabaseCircuitBreaker();
+  private connectionHealth: DatabaseConnectionHealth = {
+    isHealthy: true,
+    lastCheck: 0,
+    consecutiveFailures: 0,
+    averageLatency: 0,
+    connectionCount: 0,
+    preparedStatementErrors: 0
+  };
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private prewarmedConnections: Map<string, PrismaClient> = new Map();
   
+  constructor() {
+    // Start health monitoring in production
+    if (process.env.NODE_ENV === 'production') {
+      this.startHealthMonitoring();
+    }
+    
+    // Pre-warm connections for faster first request
+    if (process.env.ENABLE_DB_PREWARMING !== 'false') {
+      this.prewarmConnections();
+    }
+  }
+
   static getInstance(): ServerlessConnectionManager {
     if (!ServerlessConnectionManager.instance) {
       ServerlessConnectionManager.instance = new ServerlessConnectionManager();
     }
     return ServerlessConnectionManager.instance;
   }
+
+  /**
+   * Start automated health monitoring
+   */
+  private startHealthMonitoring(): void {
+    this.healthCheckInterval = setInterval(async () => {
+      await this.performHealthCheck();
+    }, 30000); // Every 30 seconds
+  }
+
+  /**
+   * Pre-warm database connections for faster first request
+   */
+  private async prewarmConnections(): void {
+    try {
+      console.log('🔥 Pre-warming database connections...');
+      const startTime = Date.now();
+      
+      // Pre-warm 2 connections
+      for (let i = 0; i < 2; i++) {
+        const client = createPrismaClient(true);
+        const connectionId = generateUniqueConnectionId();
+        
+        // Test the connection
+        await client.$queryRaw`SELECT 1 as test`;
+        
+        this.prewarmedConnections.set(connectionId, client);
+        console.log(`✅ Pre-warmed connection ${i + 1}/2: ${connectionId}`);
+        
+        // Small delay between connections
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      const warmupTime = Date.now() - startTime;
+      console.log(`✅ Database pre-warming completed in ${warmupTime}ms`);
+    } catch (error) {
+      console.warn('⚠️ Database pre-warming failed:', error);
+    }
+  }
+
+  /**
+   * Comprehensive health check with circuit breaker integration
+   */
+  private async performHealthCheck(): Promise<void> {
+    try {
+      const startTime = Date.now();
+      
+      const result = await this.circuitBreaker.execute(async () => {
+        const client = await this.getClient();
+        await client.$queryRaw`SELECT 1 as health_check, pg_backend_pid() as pid, current_timestamp as ts`;
+        return client;
+      }, 'health_check');
+
+      const latency = Date.now() - startTime;
+      this.updateConnectionHealth(true, latency);
+      
+    } catch (error) {
+      console.warn('Database health check failed:', error);
+      this.updateConnectionHealth(false, 0);
+      
+      // Check for prepared statement errors specifically
+      if (error instanceof Error && error.message.includes('prepared statement')) {
+        this.connectionHealth.preparedStatementErrors++;
+        console.error('🚨 Prepared statement error detected during health check');
+        
+        // Force cleanup of all connections to reset state
+        await this.forceCleanupAll();
+      }
+    }
+  }
+
+  /**
+   * Update connection health metrics
+   */
+  private updateConnectionHealth(success: boolean, latency: number): void {
+    this.connectionHealth.lastCheck = Date.now();
+    this.connectionHealth.connectionCount = this.clients.size;
+    
+    if (success) {
+      this.connectionHealth.consecutiveFailures = 0;
+      this.connectionHealth.isHealthy = true;
+      
+      // Update average latency (simple rolling average)
+      if (this.connectionHealth.averageLatency === 0) {
+        this.connectionHealth.averageLatency = latency;
+      } else {
+        this.connectionHealth.averageLatency = 
+          (this.connectionHealth.averageLatency * 0.8) + (latency * 0.2);
+      }
+    } else {
+      this.connectionHealth.consecutiveFailures++;
+      if (this.connectionHealth.consecutiveFailures >= 3) {
+        this.connectionHealth.isHealthy = false;
+      }
+    }
+  }
   
   async getClient(): Promise<PrismaClient> {
-    // Clean up old clients periodically
-    if (Date.now() - this.lastCleanup > this.CLEANUP_INTERVAL) {
+    return await this.circuitBreaker.execute(async () => {
+      // Clean up old clients periodically
+      if (Date.now() - this.lastCleanup > this.CLEANUP_INTERVAL) {
+        await this.cleanup();
+      }
+      
+      // First, try to use a pre-warmed connection if available
+      if (this.prewarmedConnections.size > 0) {
+        const [connectionId, client] = this.prewarmedConnections.entries().next().value;
+        this.prewarmedConnections.delete(connectionId);
+        
+        // Move to active pool
+        this.clients.set(connectionId, {
+          client,
+          created: Date.now(),
+          lastUsed: Date.now(),
+          connectionId
+        });
+        
+        console.log(`⚡ Using pre-warmed connection: ${connectionId}`);
+        return client;
+      }
+      
+      // Reuse existing client if available
+      const availableClient = this.findReusableClient();
+      if (availableClient) {
+        availableClient.lastUsed = Date.now();
+        return availableClient.client;
+      }
+      
+      // Create new client if under pool limit
+      if (this.clients.size < this.MAX_POOL_SIZE) {
+        const client = createPrismaClient(true);
+        const clientId = generateUniqueConnectionId();
+        
+        this.clients.set(clientId, {
+          client,
+          created: Date.now(),
+          lastUsed: Date.now(),
+          connectionId: clientId
+        });
+        
+        // Auto-cleanup after TTL
+        setTimeout(() => {
+          this.cleanupClient(clientId);
+        }, this.CLIENT_TTL);
+        
+        console.log(`🔗 Created new database connection: ${clientId}`);
+        return client;
+      }
+      
+      // Pool is full, force cleanup and create new client
       await this.cleanup();
-    }
+      return this.getClient(); // Recursive call after cleanup
+    }, 'get_client');
+  }
+
+  /**
+   * Force cleanup of all connections (emergency reset)
+   */
+  private async forceCleanupAll(): Promise<void> {
+    console.log('🧹 Force cleanup of all database connections...');
     
-    // Reuse existing client if pool not full
-    const availableClient = this.findReusableClient();
-    if (availableClient) {
-      availableClient.lastUsed = Date.now();
-      return availableClient.client;
-    }
+    // Clean up active connections
+    const activeClients = Array.from(this.clients.keys());
+    await Promise.all(activeClients.map(id => this.cleanupClient(id)));
     
-    // Create new client if under pool limit
-    if (this.clients.size < this.MAX_POOL_SIZE) {
-      const client = createPrismaClient(true);
-      const clientId = generateUniqueConnectionId();
-      
-      this.clients.set(clientId, {
-        client,
-        created: Date.now(),
-        lastUsed: Date.now()
-      });
-      
-      // Auto-cleanup after TTL
-      setTimeout(() => {
-        this.cleanupClient(clientId);
-      }, this.CLIENT_TTL);
-      
-      return client;
-    }
+    // Clean up pre-warmed connections
+    const prewarmedClients = Array.from(this.prewarmedConnections.entries());
+    await Promise.all(prewarmedClients.map(async ([id, client]) => {
+      try {
+        await client.$disconnect();
+      } catch (error) {
+        console.warn(`Failed to disconnect pre-warmed client ${id}:`, error);
+      }
+    }));
     
-    // Pool is full, force cleanup and create new client
-    await this.cleanup();
-    return this.getClient(); // Recursive call after cleanup
+    this.prewarmedConnections.clear();
+    this.clients.clear();
+    
+    console.log('✅ Force cleanup completed');
   }
   
   private findReusableClient(): { client: PrismaClient; created: number; lastUsed: number } | null {
@@ -209,6 +478,27 @@ class ServerlessConnectionManager {
       maxPoolSize: this.MAX_POOL_SIZE,
       poolUtilization: (totalConnections / this.MAX_POOL_SIZE) * 100
     };
+  }
+
+  /**
+   * Public getter for connection health data
+   */
+  public getConnectionHealth(): DatabaseConnectionHealth {
+    return { ...this.connectionHealth };
+  }
+
+  /**
+   * Public getter for circuit breaker stats
+   */
+  public getCircuitBreakerStats() {
+    return this.circuitBreaker.getStats();
+  }
+
+  /**
+   * Public getter for pool statistics
+   */
+  public getPoolStats() {
+    return this.getPoolStatistics();
   }
 }
 
@@ -1067,5 +1357,83 @@ export class DatabaseService {
       return 'CANCELLED';
     }
     return 'PENDING';
+  }
+
+  /**
+   * Get comprehensive database health status
+   */
+  static getDatabaseHealth() {
+    try {
+      const manager = ServerlessConnectionManager.getInstance();
+      return {
+        connectionManager: manager.getConnectionHealth(),
+        circuitBreaker: manager.getCircuitBreakerStats(),
+        poolStats: manager.getPoolStats(),
+      };
+    } catch (error) {
+      console.error('Error getting database health:', error);
+      return {
+        connectionManager: {
+          isHealthy: false,
+          lastCheck: Date.now(),
+          consecutiveFailures: 0,
+          averageLatency: 0,
+          connectionCount: 0,
+          preparedStatementErrors: 0,
+          error: 'Failed to get health data'
+        },
+        circuitBreaker: {
+          state: 'UNKNOWN',
+          failureCount: 0,
+          successCount: 0,
+          lastFailureTime: 0,
+          nextAttemptTime: 0
+        },
+        poolStats: {
+          totalConnections: 0,
+          activeConnections: 0,
+          maxPoolSize: 0,
+          poolUtilization: 0
+        }
+      };
+    }
+  }
+
+  /**
+   * Force database connection pre-warming
+   */
+  static async prewarmDatabase(): Promise<void> {
+    try {
+      const manager = ServerlessConnectionManager.getInstance();
+      // Call private method via type assertion
+      await (manager as any).prewarmConnections();
+    } catch (error) {
+      console.error('Failed to prewarm database connections:', error);
+    }
+  }
+
+  /**
+   * Reset database circuit breaker (emergency use)
+   */
+  static resetDatabaseCircuitBreaker(): void {
+    try {
+      const manager = ServerlessConnectionManager.getInstance();
+      const circuitBreaker = (manager as any).circuitBreaker;
+      if (circuitBreaker && typeof circuitBreaker.reset === 'function') {
+        circuitBreaker.reset();
+      }
+      
+      // Reset connection health
+      (manager as any).connectionHealth = {
+        isHealthy: true,
+        lastCheck: 0,
+        consecutiveFailures: 0,
+        averageLatency: 0,
+        connectionCount: 0,
+        preparedStatementErrors: 0
+      };
+    } catch (error) {
+      console.error('Failed to reset database circuit breaker:', error);
+    }
   }
 }
