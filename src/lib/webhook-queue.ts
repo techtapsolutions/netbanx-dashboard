@@ -44,36 +44,184 @@ export const webhookQueue = new Queue<WebhookJobData>('webhook processing', {
   },
 });
 
-// Webhook deduplication using Redis
+// Enhanced webhook deduplication using multiple identifiers
 class WebhookDeduplicator {
   private readonly DEDUP_KEY_PREFIX = 'webhook_dedup:';
   private readonly DEFAULT_TTL = 3600; // 1 hour
 
-  async isDuplicate(webhookId: string, signature?: string): Promise<boolean> {
+  /**
+   * Check if webhook is duplicate using multi-level deduplication strategy
+   * Checks: webhook ID, transaction ID, payload ID, and merchant reference
+   */
+  async isDuplicate(
+    webhookId: string, 
+    payload?: WebhookPayload,
+    signature?: string
+  ): Promise<boolean> {
     try {
-      // Create deduplication key from webhook ID and signature
-      const dedupKey = this.createDedupKey(webhookId, signature);
-      const exists = await RedisConnectionManager.exists(dedupKey);
-      return exists === 1;
+      // Create all possible deduplication keys
+      const dedupKeys = this.createAllDedupKeys(webhookId, payload, signature);
+      
+      // Check all keys in parallel for better performance
+      const existsPromises = dedupKeys.map(key => 
+        RedisConnectionManager.exists(key).catch(() => 0)
+      );
+      
+      const results = await Promise.all(existsPromises);
+      
+      // If ANY deduplication key exists, it's a duplicate
+      const isDuplicate = results.some(exists => exists === 1);
+      
+      if (isDuplicate) {
+        console.log(`Duplicate detected for webhook ${webhookId}`, {
+          webhookId,
+          payloadId: payload?.id,
+          transactionId: payload?.eventData?.id,
+          merchantRef: payload?.eventData?.merchantRefNum,
+          dedupKeys: dedupKeys.filter((key, index) => results[index] === 1)
+        });
+      }
+      
+      return isDuplicate;
     } catch (error) {
       console.warn('Deduplication check failed:', error);
       return false; // Allow processing if dedup check fails
     }
   }
 
-  async markProcessed(webhookId: string, signature?: string, ttlSeconds = this.DEFAULT_TTL): Promise<void> {
+  /**
+   * Mark webhook as processed using all identifiers
+   */
+  async markProcessed(
+    webhookId: string,
+    payload?: WebhookPayload, 
+    signature?: string, 
+    ttlSeconds = this.DEFAULT_TTL
+  ): Promise<void> {
     try {
-      const dedupKey = this.createDedupKey(webhookId, signature);
-      await RedisConnectionManager.setex(dedupKey, ttlSeconds, Date.now().toString());
+      const dedupKeys = this.createAllDedupKeys(webhookId, payload, signature);
+      const timestamp = Date.now().toString();
+      
+      // Mark all deduplication keys in parallel
+      const setPromises = dedupKeys.map(key =>
+        RedisConnectionManager.setex(key, ttlSeconds, timestamp).catch(error => {
+          console.warn(`Failed to set dedup key ${key}:`, error);
+        })
+      );
+      
+      await Promise.all(setPromises);
+      
+      console.log(`Marked webhook ${webhookId} as processed with ${dedupKeys.length} dedup keys`);
     } catch (error) {
       console.warn('Failed to mark webhook as processed:', error);
     }
   }
 
-  private createDedupKey(webhookId: string, signature?: string): string {
-    const data = signature ? `${webhookId}:${signature}` : webhookId;
-    const hash = crypto.createHash('sha256').update(data).digest('hex');
-    return `${this.DEDUP_KEY_PREFIX}${hash}`;
+  /**
+   * Create all deduplication keys for multi-level checking
+   */
+  private createAllDedupKeys(
+    webhookId: string,
+    payload?: WebhookPayload,
+    signature?: string
+  ): string[] {
+    const keys: string[] = [];
+    
+    // Primary: webhook ID + signature (original logic)
+    keys.push(this.createDedupKey('webhook', webhookId, signature));
+    
+    if (payload) {
+      // Secondary: transaction ID from eventData
+      if (payload.eventData?.id) {
+        keys.push(this.createDedupKey('transaction', payload.eventData.id));
+      }
+      
+      // Tertiary: payload ID
+      if (payload.id) {
+        keys.push(this.createDedupKey('payload', payload.id));
+      }
+      
+      // Quaternary: merchant reference number
+      if (payload.eventData?.merchantRefNum) {
+        keys.push(this.createDedupKey('merchant_ref', payload.eventData.merchantRefNum));
+      }
+      
+      // Additional: combination of payload ID + transaction ID for extra safety
+      if (payload.id && payload.eventData?.id) {
+        keys.push(this.createDedupKey('composite', `${payload.id}:${payload.eventData.id}`));
+      }
+    }
+    
+    return keys;
+  }
+
+  /**
+   * Create a single deduplication key with namespace
+   */
+  private createDedupKey(namespace: string, data: string, signature?: string): string {
+    const keyData = signature ? `${data}:${signature}` : data;
+    const hash = crypto.createHash('sha256').update(keyData).digest('hex');
+    return `${this.DEDUP_KEY_PREFIX}${namespace}:${hash}`;
+  }
+
+  /**
+   * Clear deduplication keys for a specific identifier (useful for debugging)
+   */
+  async clearDedupKeys(
+    webhookId?: string,
+    payload?: WebhookPayload,
+    signature?: string
+  ): Promise<number> {
+    try {
+      if (!webhookId && !payload) {
+        console.warn('No identifiers provided for clearing dedup keys');
+        return 0;
+      }
+
+      const dedupKeys = this.createAllDedupKeys(
+        webhookId || '',
+        payload,
+        signature
+      );
+
+      let cleared = 0;
+      for (const key of dedupKeys) {
+        const result = await RedisConnectionManager.del(key).catch(() => 0);
+        if (result > 0) cleared++;
+      }
+
+      console.log(`Cleared ${cleared} deduplication keys`);
+      return cleared;
+    } catch (error) {
+      console.error('Failed to clear dedup keys:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get deduplication status for debugging
+   */
+  async getDedupStatus(
+    webhookId: string,
+    payload?: WebhookPayload,
+    signature?: string
+  ): Promise<{ [key: string]: boolean }> {
+    try {
+      const dedupKeys = this.createAllDedupKeys(webhookId, payload, signature);
+      const status: { [key: string]: boolean } = {};
+
+      for (const key of dedupKeys) {
+        const exists = await RedisConnectionManager.exists(key).catch(() => 0);
+        // Extract readable name from key
+        const keyName = key.replace(this.DEDUP_KEY_PREFIX, '').split(':')[0];
+        status[keyName] = exists === 1;
+      }
+
+      return status;
+    } catch (error) {
+      console.error('Failed to get dedup status:', error);
+      return {};
+    }
   }
 }
 
@@ -182,8 +330,13 @@ webhookQueue.process('*', 5, async (job) => {  // Process 5 jobs concurrently
   try {
     console.log(`Processing webhook job: ${job.id} - ${webhookEvent.id}`);
 
-    // Skip processing if webhook is duplicate
-    const isDuplicate = await webhookDeduplicator.isDuplicate(webhookEvent.id, signature);
+    // Enhanced deduplication: check multiple identifiers
+    const isDuplicate = await webhookDeduplicator.isDuplicate(
+      webhookEvent.id, 
+      webhookEvent.payload,
+      signature
+    );
+    
     if (isDuplicate) {
       console.log(`Skipping duplicate webhook: ${webhookEvent.id}`);
       return {
@@ -210,8 +363,12 @@ webhookQueue.process('*', 5, async (job) => {  // Process 5 jobs concurrently
     // Process the webhook event
     await webhookStorePersistent.addWebhookEvent(webhookEvent);
 
-    // Mark as processed for deduplication
-    await webhookDeduplicator.markProcessed(webhookEvent.id, signature);
+    // Mark as processed with all identifiers for comprehensive deduplication
+    await webhookDeduplicator.markProcessed(
+      webhookEvent.id,
+      webhookEvent.payload,
+      signature
+    );
 
     // Smart cache invalidation based on webhook type
     await performSmartCacheInvalidation(webhookEvent);
